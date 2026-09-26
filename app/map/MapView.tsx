@@ -7,10 +7,61 @@ import {
   Marker,
   Popup,
   useMap,
+  LayersControl,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { TreeRecord } from "@/lib/types";
+
+// ─── Map Style / Tile Provider Configurations ──────────────────────────────
+
+export type MapStyle = "google_hybrid" | "esri_satellite" | "google_satellite" | "osm";
+
+interface TileProvider {
+  id: MapStyle;
+  name: string;
+  badge: string;
+  url: string;
+  attribution: string;
+  maxZoom: number;
+}
+
+const TILE_PROVIDERS: Record<MapStyle, TileProvider> = {
+  google_hybrid: {
+    id: "google_hybrid",
+    name: "Satellite Hybrid",
+    badge: "🛰️ Hybrid",
+    url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    attribution: "&copy; Google Maps",
+    maxZoom: 20,
+  },
+  esri_satellite: {
+    id: "esri_satellite",
+    name: "Esri Satellite",
+    badge: "🌎 Esri Earth",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and GIS User Community",
+    maxZoom: 19,
+  },
+  google_satellite: {
+    id: "google_satellite",
+    name: "Pure Satellite",
+    badge: "📷 Pure Sat",
+    url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+    attribution: "&copy; Google Maps",
+    maxZoom: 20,
+  },
+  osm: {
+    id: "osm",
+    name: "Street Map",
+    badge: "🗺️ Street",
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  },
+};
 
 // ─── Marker icon factories ──────────────────────────────────────────────────
 //
@@ -113,80 +164,166 @@ interface MapViewProps {
 }
 
 export default function MapView({ trees }: MapViewProps) {
+  const [activeStyle, setActiveStyle] = useState<MapStyle>("google_hybrid");
+
+  const currentProvider = TILE_PROVIDERS[activeStyle];
+
   return (
-    <MapContainer
-      center={FARM_ENTRANCE}
-      zoom={15}
-      style={{ width: "100%", height: "100vh" }}
-      zoomControl={true}
-    >
-      {/* OpenStreetMap tile layer — free, no API key needed */}
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+    <div className="relative w-full h-full">
+      {/* Quick View Switcher Floating Toolbar */}
+      <div
+        className="fixed top-4 left-4 z-[1000] flex items-center gap-1.5 p-1.5 rounded-xl backdrop-blur-md shadow-lg transition-all"
+        style={{
+          background: "rgba(26, 29, 39, 0.85)",
+          border: "1px solid rgba(255, 255, 255, 0.15)",
+        }}
+      >
+        <span className="text-xs font-semibold px-2 text-gray-300 hidden sm:inline">
+          View:
+        </span>
+        {(Object.keys(TILE_PROVIDERS) as MapStyle[]).map((key) => {
+          const provider = TILE_PROVIDERS[key];
+          const isActive = activeStyle === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveStyle(key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                isActive
+                  ? "bg-emerald-600 text-white shadow-md scale-105"
+                  : "text-gray-300 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {provider.badge}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* Fit the map to include all markers once data loads */}
-      <FitBounds trees={trees} />
+      <MapContainer
+        center={FARM_ENTRANCE}
+        zoom={15}
+        style={{ width: "100%", height: "100vh" }}
+        zoomControl={true}
+      >
+        {/* Layer Control allowing standard Leaflet layer toggling */}
+        <LayersControl position="topright">
+          <LayersControl.BaseLayer
+            checked={activeStyle === "google_hybrid"}
+            name="Satellite Hybrid (Google)"
+          >
+            <TileLayer
+              attribution={TILE_PROVIDERS.google_hybrid.attribution}
+              url={TILE_PROVIDERS.google_hybrid.url}
+              maxZoom={TILE_PROVIDERS.google_hybrid.maxZoom}
+            />
+          </LayersControl.BaseLayer>
 
-      {/* Farm entrance marker — visually distinct blue star */}
-      <Marker position={FARM_ENTRANCE} icon={ICON_FARM}>
-        <Popup>
-          <div className="text-center">
-            <strong className="text-sm">🏠 Farm Entrance</strong>
-            <p className="text-xs mt-1 opacity-60">Reference point</p>
-          </div>
-        </Popup>
-      </Marker>
+          <LayersControl.BaseLayer
+            checked={activeStyle === "esri_satellite"}
+            name="Esri World Imagery (Satellite)"
+          >
+            <TileLayer
+              attribution={TILE_PROVIDERS.esri_satellite.attribution}
+              url={TILE_PROVIDERS.esri_satellite.url}
+              maxZoom={TILE_PROVIDERS.esri_satellite.maxZoom}
+            />
+          </LayersControl.BaseLayer>
 
-      {/* Tree / plant markers */}
-      {trees.map((tree) => (
-        <Marker
-          key={tree.id}
-          position={[tree.latitude, tree.longitude]}
-          icon={getMarkerIcon(tree)}
-        >
-          <Popup maxWidth={280} minWidth={200}>
-            <div className="space-y-1.5">
-              <div className="font-bold text-sm">{tree.tree_id}</div>
+          <LayersControl.BaseLayer
+            checked={activeStyle === "google_satellite"}
+            name="Pure Satellite (Google)"
+          >
+            <TileLayer
+              attribution={TILE_PROVIDERS.google_satellite.attribution}
+              url={TILE_PROVIDERS.google_satellite.url}
+              maxZoom={TILE_PROVIDERS.google_satellite.maxZoom}
+            />
+          </LayersControl.BaseLayer>
 
-              <div className="text-xs space-y-0.5">
-                <div>
-                  <span className="opacity-60">Type:</span>{" "}
-                  {tree.type === "tree" ? "🌳 Tree" : "🌿 Plant"}
-                </div>
-                {tree.variety && (
-                  <div>
-                    <span className="opacity-60">Variety:</span> {tree.variety}
-                  </div>
-                )}
-                <div>
-                  <span className="opacity-60">Fruiting:</span>{" "}
-                  {tree.is_fruiting ? "✅ Yes" : "No"}
-                </div>
-                <div>
-                  <span className="opacity-60">Affected:</span>{" "}
-                  {tree.is_affected ? "⚠️ Yes" : "No"}
-                </div>
-                <div>
-                  <span className="opacity-60">Pruned:</span>{" "}
-                  {tree.is_pruned ? "✅ Yes" : "No"}
-                </div>
-              </div>
+          <LayersControl.BaseLayer
+            checked={activeStyle === "osm"}
+            name="Standard Street Map (OpenStreetMap)"
+          >
+            <TileLayer
+              attribution={TILE_PROVIDERS.osm.attribution}
+              url={TILE_PROVIDERS.osm.url}
+              maxZoom={TILE_PROVIDERS.osm.maxZoom}
+            />
+          </LayersControl.BaseLayer>
+        </LayersControl>
 
-              {/* Show the first photo, or the variety image as fallback */}
-              {(tree.image_urls?.[0] || tree.variety_image_url) && (
-                <img
-                  src={tree.image_urls?.[0] || tree.variety_image_url!}
-                  alt={`${tree.tree_id} photo`}
-                  className="w-full max-h-32 object-cover rounded-md mt-1"
-                  style={{ border: "1px solid rgba(255,255,255,0.1)" }}
-                />
-              )}
+        {/* Dynamic active TileLayer synced with quick toolbar state */}
+        <TileLayer
+          key={activeStyle}
+          attribution={currentProvider.attribution}
+          url={currentProvider.url}
+          maxZoom={currentProvider.maxZoom}
+        />
+
+        {/* Fit the map to include all markers once data loads */}
+        <FitBounds trees={trees} />
+
+        {/* Farm entrance marker — visually distinct blue star */}
+        <Marker position={FARM_ENTRANCE} icon={ICON_FARM}>
+          <Popup>
+            <div className="text-center">
+              <strong className="text-sm">🏠 Farm Entrance</strong>
+              <p className="text-xs mt-1 opacity-60">Reference point</p>
             </div>
           </Popup>
         </Marker>
-      ))}
-    </MapContainer>
+
+        {/* Tree / plant markers */}
+        {trees.map((tree) => (
+          <Marker
+            key={tree.id}
+            position={[tree.latitude, tree.longitude]}
+            icon={getMarkerIcon(tree)}
+          >
+            <Popup maxWidth={280} minWidth={200}>
+              <div className="space-y-1.5">
+                <div className="font-bold text-sm">{tree.tree_id}</div>
+
+                <div className="text-xs space-y-0.5">
+                  <div>
+                    <span className="opacity-60">Type:</span>{" "}
+                    {tree.type === "tree" ? "🌳 Tree" : "🌿 Plant"}
+                  </div>
+                  {tree.variety && (
+                    <div>
+                      <span className="opacity-60">Variety:</span> {tree.variety}
+                    </div>
+                  )}
+                  <div>
+                    <span className="opacity-60">Fruiting:</span>{" "}
+                    {tree.is_fruiting ? "✅ Yes" : "No"}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Affected:</span>{" "}
+                    {tree.is_affected ? "⚠️ Yes" : "No"}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Pruned:</span>{" "}
+                    {tree.is_pruned ? "✅ Yes" : "No"}
+                  </div>
+                </div>
+
+                {/* Show the first photo, or the variety image as fallback */}
+                {(tree.image_urls?.[0] || tree.variety_image_url) && (
+                  <img
+                    src={tree.image_urls?.[0] || tree.variety_image_url!}
+                    alt={`${tree.tree_id} photo`}
+                    className="w-full max-h-32 object-cover rounded-md mt-1"
+                    style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                  />
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
   );
 }
+
