@@ -1,8 +1,48 @@
 "use client";
 
 import { useState, useRef, useCallback, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import CameraCaptureModal from "./CameraCaptureModal";
+
+// ─── Dynamic Import for Leaflet Map Component (SSR disabled) ─────────────────
+const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
+  ssr: false,
+  loading: () => (
+    <div
+      className="w-full h-[320px] rounded-2xl flex flex-col items-center justify-center gap-2 border"
+      style={{
+        background: "var(--input-bg)",
+        borderColor: "var(--input-border)",
+      }}
+    >
+      <svg
+        className="animate-spin h-6 w-6 text-emerald-500"
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <circle
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="3"
+          className="opacity-25"
+        />
+        <path
+          d="M4 12a8 8 0 018-8"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+      </svg>
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        Loading interactive satellite map…
+      </p>
+    </div>
+  ),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,10 +84,6 @@ const INITIAL_FORM: FormData = {
 /**
  * Uploads a single file to the Supabase `tree-images` storage bucket.
  * Returns the public URL of the uploaded file.
- *
- * Path convention:
- * - Variety images:  variety/{timestamp}-{filename}
- * - Photo images:    photos/{timestamp}-{index}-{filename}
  */
 async function uploadFile(
   file: File,
@@ -67,7 +103,6 @@ async function uploadFile(
 
   if (error) throw new Error(`Upload failed for ${file.name}: ${error.message}`);
 
-  // Get the public URL from the bucket (bucket must be public)
   const {
     data: { publicUrl },
   } = supabase.storage.from("tree-images").getPublicUrl(path);
@@ -88,34 +123,46 @@ export default function RegisterPage() {
     msg: string;
   } | null>(null);
 
-  // Variety image (single file)
+  // Variety image state
   const [varietyFile, setVarietyFile] = useState<File | null>(null);
   const [varietyPreview, setVarietyPreview] = useState<string | null>(null);
-  const varietyInputRef = useRef<HTMLInputElement>(null);
 
-  // Tree/plant images (multiple files)
+  // Variety file inputs (Gallery vs Camera)
+  const varietyGalleryInputRef = useRef<HTMLInputElement>(null);
+  const varietyCameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Tree/plant images state (multiple files)
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Photo file inputs (Gallery vs Camera)
+  const photoGalleryInputRef = useRef<HTMLInputElement>(null);
+  const photoCameraInputRef = useRef<HTMLInputElement>(null);
+
+  // WebRTC Camera Modal state
+  const [cameraModalTarget, setCameraModalTarget] = useState<
+    "variety" | "photo" | null
+  >(null);
 
   // ─── Field updater ──────────────────────────────────────────────────────
 
   const updateField = useCallback(
     <K extends keyof FormData>(key: K, value: FormData[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }));
-      // Clear the field error when the user starts typing
       setErrors((prev) => ({ ...prev, [key]: undefined }));
       setSubmitResult(null);
     },
     []
   );
 
-  // ─── Geolocation ────────────────────────────────────────────────────────
+  // ─── Geolocation & Map handler ──────────────────────────────────────────
 
   const handleGetLocation = useCallback(() => {
     if (typeof window !== "undefined" && !window.isSecureContext) {
       setGeoStatus("error");
-      setGeoError("Geolocation requires a secure connection (HTTPS). On mobile, testing via IP address (HTTP) will block location access.");
+      setGeoError(
+        "Geolocation requires a secure connection (HTTPS). On mobile, testing via IP address (HTTP) will block location access."
+      );
       return;
     }
 
@@ -144,11 +191,10 @@ export default function RegisterPage() {
       },
       (err) => {
         setGeoStatus("error");
-        // Provide a human-readable error for each error code
         switch (err.code) {
           case err.PERMISSION_DENIED:
             setGeoError(
-              "Location permission denied. Please allow location access in your browser settings."
+              "Location permission denied. Please allow location access in browser settings."
             );
             break;
           case err.POSITION_UNAVAILABLE:
@@ -158,52 +204,94 @@ export default function RegisterPage() {
             setGeoError("Location request timed out. Please try again.");
             break;
           default:
-            setGeoError("An unknown error occurred getting your location.");
+            setGeoError("An unknown error occurred getting location.");
         }
       },
       { enableHighAccuracy: true, timeout: 15000 }
     );
   }, []);
 
-  // ─── File handlers ──────────────────────────────────────────────────────
-
-  const handleVarietyFile = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0] ?? null;
-      setVarietyFile(file);
-      if (file) {
-        setVarietyPreview(URL.createObjectURL(file));
-      } else {
-        setVarietyPreview(null);
-      }
+  const handleMapLocationSelect = useCallback(
+    (lat: number, lng: number) => {
+      setForm((prev) => ({
+        ...prev,
+        latitude: lat.toFixed(6),
+        longitude: lng.toFixed(6),
+      }));
+      setErrors((prev) => ({
+        ...prev,
+        latitude: undefined,
+        longitude: undefined,
+      }));
     },
     []
+  );
+
+  // ─── Variety Image File Handlers ────────────────────────────────────────
+
+  const setVarietyImageFile = useCallback((file: File | null) => {
+    setVarietyFile(file);
+    if (file) {
+      setVarietyPreview(URL.createObjectURL(file));
+    } else {
+      setVarietyPreview(null);
+    }
+  }, []);
+
+  const handleVarietyFileInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0] ?? null;
+      setVarietyImageFile(file);
+      e.target.value = ""; // reset input
+    },
+    [setVarietyImageFile]
   );
 
   const clearVarietyFile = useCallback(() => {
     setVarietyFile(null);
     setVarietyPreview(null);
-    if (varietyInputRef.current) varietyInputRef.current.value = "";
+    if (varietyGalleryInputRef.current) varietyGalleryInputRef.current.value = "";
+    if (varietyCameraInputRef.current) varietyCameraInputRef.current.value = "";
   }, []);
 
-  const handlePhotoFiles = useCallback(
+  // ─── Photo Files Handlers (Multiple) ────────────────────────────────────
+
+  const addPhotoFiles = useCallback((newFiles: File[]) => {
+    if (newFiles.length === 0) return;
+    setPhotoFiles((prev) => [...prev, ...newFiles]);
+    setPhotoPreviews((prev) => [
+      ...prev,
+      ...newFiles.map((f) => URL.createObjectURL(f)),
+    ]);
+  }, []);
+
+  const handlePhotoFilesInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      setPhotoFiles((prev) => [...prev, ...files]);
-      setPhotoPreviews((prev) => [
-        ...prev,
-        ...files.map((f) => URL.createObjectURL(f)),
-      ]);
+      addPhotoFiles(files);
+      e.target.value = ""; // reset input
     },
-    []
+    [addPhotoFiles]
   );
 
   const removePhoto = useCallback((index: number) => {
     setPhotoFiles((prev) => prev.filter((_, i) => i !== index));
     setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
-    // Clear the native input so the user can re-select the same file if needed
-    if (photoInputRef.current) photoInputRef.current.value = "";
   }, []);
+
+  // ─── Camera Modal Capture Callback ──────────────────────────────────────
+
+  const handleCameraCapture = useCallback(
+    (file: File) => {
+      if (cameraModalTarget === "variety") {
+        setVarietyImageFile(file);
+      } else if (cameraModalTarget === "photo") {
+        addPhotoFiles([file]);
+      }
+      setCameraModalTarget(null);
+    },
+    [cameraModalTarget, setVarietyImageFile, addPhotoFiles]
+  );
 
   // ─── Validation ─────────────────────────────────────────────────────────
 
@@ -242,14 +330,14 @@ export default function RegisterPage() {
         variety_image_url = await uploadFile(varietyFile, "variety");
       }
 
-      // 2. Upload all photo images, collecting URLs into an array
+      // 2. Upload all photo images
       const image_urls: string[] = [];
       for (let i = 0; i < photoFiles.length; i++) {
         const url = await uploadFile(photoFiles[i], "photos", i);
         image_urls.push(url);
       }
 
-      // 3. Insert the record into the `trees` table
+      // 3. Insert record into Supabase
       const { error: insertError } = await supabase.from("trees").insert({
         tree_id: form.tree_id.trim(),
         type: form.type,
@@ -268,7 +356,7 @@ export default function RegisterPage() {
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      // Success — reset the entire form including file inputs
+      // Success — reset form
       setSubmitResult({
         ok: true,
         msg: "Tree/plant registered successfully!",
@@ -277,9 +365,7 @@ export default function RegisterPage() {
       clearVarietyFile();
       setPhotoFiles([]);
       setPhotoPreviews([]);
-      if (photoInputRef.current) photoInputRef.current.value = "";
     } catch (err) {
-      // On failure, keep the user's entered data so they don't lose it
       setSubmitResult({
         ok: false,
         msg: err instanceof Error ? err.message : "An unknown error occurred.",
@@ -289,12 +375,8 @@ export default function RegisterPage() {
     }
   };
 
-  // ─── Render helpers ─────────────────────────────────────────────────────
+  // ─── Toggle Helper ──────────────────────────────────────────────────────
 
-  /**
-   * Styled toggle switch used for boolean fields (fruiting, affected, pruned).
-   * Uses a hidden checkbox + CSS-only slider for accessibility and styling.
-   */
   const Toggle = ({
     label,
     checked,
@@ -304,8 +386,13 @@ export default function RegisterPage() {
     checked: boolean;
     onChange: (v: boolean) => void;
   }) => (
-    <div className="flex items-center justify-between py-3 px-4 rounded-xl"
-      style={{ background: "var(--input-bg)", border: "1px solid var(--input-border)" }}>
+    <div
+      className="flex items-center justify-between py-3 px-4 rounded-xl"
+      style={{
+        background: "var(--input-bg)",
+        border: "1px solid var(--input-border)",
+      }}
+    >
       <span className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
         {label}
       </span>
@@ -321,6 +408,9 @@ export default function RegisterPage() {
   );
 
   // ─── Render ─────────────────────────────────────────────────────────────
+
+  const latNum = form.latitude ? parseFloat(form.latitude) : null;
+  const lngNum = form.longitude ? parseFloat(form.longitude) : null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--background)" }}>
@@ -350,8 +440,8 @@ export default function RegisterPage() {
 
       {/* ── Form ── */}
       <main className="flex-1 px-4 py-6 max-w-lg mx-auto w-full">
-        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-          {/* ── Submit result banner ── */}
+        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+          {/* Submit result banner */}
           {submitResult && (
             <div
               className="px-4 py-3 rounded-xl text-sm font-medium border"
@@ -362,9 +452,7 @@ export default function RegisterPage() {
                 borderColor: submitResult.ok
                   ? "var(--success-border)"
                   : "var(--error-border)",
-                color: submitResult.ok
-                  ? "var(--primary)"
-                  : "var(--danger)",
+                color: submitResult.ok ? "var(--primary)" : "var(--danger)",
               }}
             >
               {submitResult.msg}
@@ -446,33 +534,70 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* ── Variety Image ── */}
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
+          {/* ── Variety Image (Camera or Gallery) ── */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium" style={{ color: "var(--foreground)" }}>
               Variety Image
             </label>
+
+            {/* Hidden native inputs */}
             <input
-              ref={varietyInputRef}
+              ref={varietyGalleryInputRef}
               type="file"
               accept="image/*"
-              onChange={handleVarietyFile}
-              className="w-full text-sm file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:font-medium file:cursor-pointer"
-              style={{
-                color: "var(--muted)",
-              }}
+              className="hidden"
+              onChange={handleVarietyFileInput}
             />
+            <input
+              ref={varietyCameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleVarietyFileInput}
+            />
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setCameraModalTarget("variety")}
+                className="py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                style={{
+                  background: "var(--input-bg)",
+                  borderColor: "var(--input-border)",
+                  color: "var(--foreground)",
+                }}
+              >
+                📷 Take Photo
+              </button>
+
+              <button
+                type="button"
+                onClick={() => varietyGalleryInputRef.current?.click()}
+                className="py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                style={{
+                  background: "var(--input-bg)",
+                  borderColor: "var(--input-border)",
+                  color: "var(--foreground)",
+                }}
+              >
+                📁 Gallery File
+              </button>
+            </div>
+
             {varietyPreview && (
-              <div className="mt-2 relative inline-block">
+              <div className="mt-3 relative inline-block">
                 <img
                   src={varietyPreview}
                   alt="Variety preview"
-                  className="w-20 h-20 object-cover rounded-lg border"
+                  className="w-24 h-24 object-cover rounded-xl border"
                   style={{ borderColor: "var(--input-border)" }}
                 />
                 <button
                   type="button"
                   onClick={clearVarietyFile}
-                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow"
                   style={{
                     background: "var(--danger)",
                     color: "#fff",
@@ -484,13 +609,21 @@ export default function RegisterPage() {
             )}
           </div>
 
-          {/* ── Location ── */}
-          <div>
+          {/* ── Location Section with Draggable Satellite Map ── */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
+                Location Coordinates <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <span className="text-xs text-gray-400">Drag pin on satellite map</span>
+            </div>
+
+            {/* Current Location Button */}
             <button
               type="button"
               onClick={handleGetLocation}
               disabled={geoStatus === "loading"}
-              className="w-full py-3.5 rounded-xl text-base font-semibold transition-all"
+              className="w-full py-3 rounded-xl text-sm font-bold transition-all shadow"
               style={{
                 background:
                   geoStatus === "loading"
@@ -503,7 +636,7 @@ export default function RegisterPage() {
               {geoStatus === "loading" ? (
                 <span className="flex items-center justify-center gap-2">
                   <svg
-                    className="animate-spin h-5 w-5"
+                    className="animate-spin h-4 w-4"
                     viewBox="0 0 24 24"
                     fill="none"
                   >
@@ -522,7 +655,7 @@ export default function RegisterPage() {
                       strokeLinecap="round"
                     />
                   </svg>
-                  Getting location…
+                  Getting current location…
                 </span>
               ) : (
                 "📍 Use My Current Location"
@@ -531,7 +664,7 @@ export default function RegisterPage() {
 
             {geoStatus === "error" && geoError && (
               <p
-                className="mt-2 text-xs px-3 py-2 rounded-lg"
+                className="text-xs px-3 py-2 rounded-lg"
                 style={{
                   background: "var(--error-bg)",
                   color: "var(--danger)",
@@ -541,10 +674,18 @@ export default function RegisterPage() {
               </p>
             )}
 
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            {/* Interactive Leaflet Satellite Map Picker */}
+            <LocationPickerMap
+              lat={latNum}
+              lng={lngNum}
+              onLocationSelect={handleMapLocationSelect}
+            />
+
+            {/* Lat / Long Numeric Inputs */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-                  Latitude <span style={{ color: "var(--danger)" }}>*</span>
+                <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>
+                  Latitude
                 </label>
                 <input
                   type="number"
@@ -552,7 +693,7 @@ export default function RegisterPage() {
                   value={form.latitude}
                   onChange={(e) => updateField("latitude", e.target.value)}
                   placeholder="12.345678"
-                  className="w-full px-4 py-3 rounded-xl text-base outline-none transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-colors"
                   style={{
                     background: "var(--input-bg)",
                     border: errors.latitude
@@ -567,9 +708,10 @@ export default function RegisterPage() {
                   </p>
                 )}
               </div>
+
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-                  Longitude <span style={{ color: "var(--danger)" }}>*</span>
+                <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>
+                  Longitude
                 </label>
                 <input
                   type="number"
@@ -577,7 +719,7 @@ export default function RegisterPage() {
                   value={form.longitude}
                   onChange={(e) => updateField("longitude", e.target.value)}
                   placeholder="77.654321"
-                  className="w-full px-4 py-3 rounded-xl text-base outline-none transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-colors"
                   style={{
                     background: "var(--input-bg)",
                     border: errors.longitude
@@ -595,7 +737,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* ── Boolean toggles ── */}
+          {/* ── Boolean Toggles ── */}
           <div className="space-y-3">
             <Toggle
               label="🍎 Is Fruiting?"
@@ -633,34 +775,74 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* ── Tree/Plant Images (multiple) ── */}
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-              Tree / Plant Images
+          {/* ── Tree/Plant Images (Multiple photos, Camera & Gallery) ── */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium" style={{ color: "var(--foreground)" }}>
+              Tree / Plant Photos
             </label>
+
+            {/* Hidden native inputs */}
             <input
-              ref={photoInputRef}
+              ref={photoGalleryInputRef}
               type="file"
               accept="image/*"
               multiple
-              onChange={handlePhotoFiles}
-              className="w-full text-sm file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:font-medium file:cursor-pointer"
-              style={{ color: "var(--muted)" }}
+              className="hidden"
+              onChange={handlePhotoFilesInput}
             />
+            <input
+              ref={photoCameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePhotoFilesInput}
+            />
+
+            {/* Image Action Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setCameraModalTarget("photo")}
+                className="py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                style={{
+                  background: "var(--input-bg)",
+                  borderColor: "var(--input-border)",
+                  color: "var(--foreground)",
+                }}
+              >
+                📷 Take Photo (Camera)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => photoGalleryInputRef.current?.click()}
+                className="py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                style={{
+                  background: "var(--input-bg)",
+                  borderColor: "var(--input-border)",
+                  color: "var(--foreground)",
+                }}
+              >
+                📁 Choose from Gallery
+              </button>
+            </div>
+
+            {/* Photos Preview Grid */}
             {photoPreviews.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-3 grid grid-cols-4 gap-2">
                 {photoPreviews.map((src, i) => (
-                  <div key={i} className="relative inline-block">
+                  <div key={i} className="relative aspect-square">
                     <img
                       src={src}
                       alt={`Photo ${i + 1}`}
-                      className="w-20 h-20 object-cover rounded-lg border"
+                      className="w-full h-full object-cover rounded-xl border"
                       style={{ borderColor: "var(--input-border)" }}
                     />
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}
-                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                      className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow"
                       style={{
                         background: "var(--danger)",
                         color: "#fff",
@@ -674,15 +856,13 @@ export default function RegisterPage() {
             )}
           </div>
 
-          {/* ── Submit ── */}
+          {/* ── Submit Button ── */}
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-4 rounded-xl text-base font-bold transition-all"
+            className="w-full py-4 rounded-xl text-base font-bold transition-all shadow-lg"
             style={{
-              background: submitting
-                ? "var(--muted)"
-                : "var(--primary)",
+              background: submitting ? "var(--muted)" : "var(--primary)",
               color: "#fff",
               opacity: submitting ? 0.7 : 1,
             }}
@@ -717,6 +897,18 @@ export default function RegisterPage() {
           </button>
         </form>
       </main>
+
+      {/* ── WebRTC Live Camera Modal ── */}
+      <CameraCaptureModal
+        isOpen={cameraModalTarget !== null}
+        onClose={() => setCameraModalTarget(null)}
+        onCapture={handleCameraCapture}
+        title={
+          cameraModalTarget === "variety"
+            ? "Take Variety Photo"
+            : "Take Tree / Plant Photo"
+        }
+      />
     </div>
   );
 }
