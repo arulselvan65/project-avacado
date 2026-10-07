@@ -11,34 +11,15 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
   loading: () => (
     <div
-      className="w-full h-[320px] rounded-2xl flex flex-col items-center justify-center gap-2 border"
+      className="w-full h-[320px] rounded-xl flex flex-col items-center justify-center gap-2"
       style={{
-        background: "var(--input-bg)",
-        borderColor: "var(--input-border)",
+        background: "var(--bg-input)",
+        border: "1px solid var(--border-primary)",
       }}
     >
-      <svg
-        className="animate-spin h-6 w-6 text-emerald-500"
-        viewBox="0 0 24 24"
-        fill="none"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="3"
-          className="opacity-25"
-        />
-        <path
-          d="M4 12a8 8 0 018-8"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
-      </svg>
-      <p className="text-xs" style={{ color: "var(--muted)" }}>
-        Loading interactive satellite map…
+      <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+      <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+        Loading satellite map…
       </p>
     </div>
   ),
@@ -56,6 +37,7 @@ interface FormData {
   is_affected: boolean;
   is_pruned: boolean;
   note: string;
+  farm_location: string;
 }
 
 interface FormErrors {
@@ -63,6 +45,7 @@ interface FormErrors {
   type?: string;
   latitude?: string;
   longitude?: string;
+  farm_location?: string;
 }
 
 type GeoStatus = "idle" | "loading" | "error";
@@ -79,6 +62,7 @@ const INITIAL_FORM: FormData = {
   is_affected: false,
   is_pruned: false,
   note: "",
+  farm_location: "",
 };
 
 /**
@@ -110,6 +94,139 @@ async function uploadFile(
   return publicUrl;
 }
 
+// ─── SVG Icons ────────────────────────────────────────────────────────────────
+
+function IconCamera({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+
+function IconUpload({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
+function IconMapPin({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+function IconMap({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+      <line x1="8" y1="2" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="22" />
+    </svg>
+  );
+}
+
+function IconCheck({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function IconX({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function IconCrosshair({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="22" y1="12" x2="18" y2="12" />
+      <line x1="6" y1="12" x2="2" y2="12" />
+      <line x1="12" y1="6" x2="12" y2="2" />
+      <line x1="12" y1="22" x2="12" y2="18" />
+    </svg>
+  );
+}
+
+// ─── Toggle Helper Component ─────────────────────────────────────────────────
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between py-3 px-4 rounded-xl transition-colors"
+      style={{
+        background: checked ? "var(--accent-subtle)" : "var(--bg-input)",
+        border: `1px solid ${checked ? "var(--border-accent)" : "var(--border-primary)"}`,
+      }}
+    >
+      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+        {label}
+      </span>
+      <label className="toggle-switch">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="toggle-slider" />
+      </label>
+    </div>
+  );
+}
+
+// ─── Section Label Component ─────────────────────────────────────────────────
+
+function SectionLabel({
+  children,
+  required,
+  hint,
+}: {
+  children: React.ReactNode;
+  required?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <label className="block text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        {children}
+        {required && (
+          <span className="ml-0.5" style={{ color: "var(--danger)" }}>
+            *
+          </span>
+        )}
+      </label>
+      {hint && (
+        <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RegisterPage() {
@@ -123,9 +240,9 @@ export default function RegisterPage() {
     msg: string;
   } | null>(null);
 
-  // Variety image state
-  const [varietyFile, setVarietyFile] = useState<File | null>(null);
-  const [varietyPreview, setVarietyPreview] = useState<string | null>(null);
+  // Variety images state (multiple files)
+  const [varietyFiles, setVarietyFiles] = useState<File[]>([]);
+  const [varietyPreviews, setVarietyPreviews] = useState<string[]>([]);
 
   // Variety file inputs (Gallery vs Camera)
   const varietyGalleryInputRef = useRef<HTMLInputElement>(null);
@@ -175,8 +292,17 @@ export default function RegisterPage() {
     setGeoStatus("loading");
     setGeoError("");
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    // Use a dual-attempt strategy for maximum precision:
+    // 1. First, get an initial position quickly.
+    // 2. Then start a short watchPosition to refine with GPS (higher accuracy).
+    // Keep the best result (lowest accuracy value = most precise).
+    let bestAccuracy = Infinity;
+    let settled = false;
+
+    const applyPosition = (pos: GeolocationPosition) => {
+      const acc = pos.coords.accuracy ?? Infinity;
+      if (acc < bestAccuracy || !settled) {
+        bestAccuracy = acc;
         setForm((prev) => ({
           ...prev,
           latitude: pos.coords.latitude.toFixed(6),
@@ -187,27 +313,52 @@ export default function RegisterPage() {
           latitude: undefined,
           longitude: undefined,
         }));
-        setGeoStatus("idle");
+      }
+    };
+
+    const handleError = (err: GeolocationPositionError) => {
+      if (settled) return;
+      settled = true;
+      setGeoStatus("error");
+      switch (err.code) {
+        case err.PERMISSION_DENIED:
+          setGeoError(
+            "Location permission denied. Please allow location access in browser settings."
+          );
+          break;
+        case err.POSITION_UNAVAILABLE:
+          setGeoError("Location information is unavailable.");
+          break;
+        case err.TIMEOUT:
+          setGeoError("Location request timed out. Please try again.");
+          break;
+        default:
+          setGeoError("An unknown error occurred getting location.");
+      }
+    };
+
+    // Phase 1: Quick initial fix
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        applyPosition(pos);
+        // Phase 2: Refine with watchPosition for up to 5s
+        const watchId = navigator.geolocation.watchPosition(
+          (refinedPos) => {
+            applyPosition(refinedPos);
+          },
+          () => { /* ignore watch errors, we already have a fix */ },
+          { enableHighAccuracy: true, maximumAge: 0 }
+        );
+        setTimeout(() => {
+          navigator.geolocation.clearWatch(watchId);
+          if (!settled) {
+            settled = true;
+            setGeoStatus("idle");
+          }
+        }, 5000);
       },
-      (err) => {
-        setGeoStatus("error");
-        switch (err.code) {
-          case err.PERMISSION_DENIED:
-            setGeoError(
-              "Location permission denied. Please allow location access in browser settings."
-            );
-            break;
-          case err.POSITION_UNAVAILABLE:
-            setGeoError("Location information is unavailable.");
-            break;
-          case err.TIMEOUT:
-            setGeoError("Location request timed out. Please try again.");
-            break;
-          default:
-            setGeoError("An unknown error occurred getting location.");
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
+      handleError,
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
 
@@ -227,29 +378,34 @@ export default function RegisterPage() {
     []
   );
 
-  // ─── Variety Image File Handlers ────────────────────────────────────────
+  // ─── Variety Image File Handlers (Multiple) ───────────────────────────
 
-  const setVarietyImageFile = useCallback((file: File | null) => {
-    setVarietyFile(file);
-    if (file) {
-      setVarietyPreview(URL.createObjectURL(file));
-    } else {
-      setVarietyPreview(null);
-    }
+  const addVarietyFiles = useCallback((newFiles: File[]) => {
+    if (newFiles.length === 0) return;
+    setVarietyFiles((prev) => [...prev, ...newFiles]);
+    setVarietyPreviews((prev) => [
+      ...prev,
+      ...newFiles.map((f) => URL.createObjectURL(f)),
+    ]);
   }, []);
 
-  const handleVarietyFileInput = useCallback(
+  const handleVarietyFilesInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0] ?? null;
-      setVarietyImageFile(file);
+      const files = Array.from(e.target.files ?? []);
+      addVarietyFiles(files);
       e.target.value = ""; // reset input
     },
-    [setVarietyImageFile]
+    [addVarietyFiles]
   );
 
-  const clearVarietyFile = useCallback(() => {
-    setVarietyFile(null);
-    setVarietyPreview(null);
+  const removeVarietyFile = useCallback((index: number) => {
+    setVarietyFiles((prev) => prev.filter((_, i) => i !== index));
+    setVarietyPreviews((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const clearVarietyFiles = useCallback(() => {
+    setVarietyFiles([]);
+    setVarietyPreviews([]);
     if (varietyGalleryInputRef.current) varietyGalleryInputRef.current.value = "";
     if (varietyCameraInputRef.current) varietyCameraInputRef.current.value = "";
   }, []);
@@ -284,19 +440,20 @@ export default function RegisterPage() {
   const handleCameraCapture = useCallback(
     (file: File) => {
       if (cameraModalTarget === "variety") {
-        setVarietyImageFile(file);
+        addVarietyFiles([file]);
       } else if (cameraModalTarget === "photo") {
         addPhotoFiles([file]);
       }
       setCameraModalTarget(null);
     },
-    [cameraModalTarget, setVarietyImageFile, addPhotoFiles]
+    [cameraModalTarget, addVarietyFiles, addPhotoFiles]
   );
 
   // ─── Validation ─────────────────────────────────────────────────────────
 
   const validate = (): boolean => {
     const errs: FormErrors = {};
+    if (!form.farm_location) errs.farm_location = "Farm location is required.";
     if (!form.tree_id.trim()) errs.tree_id = "Tree ID is required.";
     if (!form.type) errs.type = "Type is required.";
     if (!form.latitude.trim()) {
@@ -324,10 +481,11 @@ export default function RegisterPage() {
     setSubmitting(true);
 
     try {
-      // 1. Upload variety image if provided
-      let variety_image_url: string | null = null;
-      if (varietyFile) {
-        variety_image_url = await uploadFile(varietyFile, "variety");
+      // 1. Upload all variety images if provided
+      const variety_image_urls: string[] = [];
+      for (let i = 0; i < varietyFiles.length; i++) {
+        const url = await uploadFile(varietyFiles[i], "variety", i);
+        variety_image_urls.push(url);
       }
 
       // 2. Upload all photo images
@@ -342,13 +500,15 @@ export default function RegisterPage() {
         tree_id: form.tree_id.trim(),
         type: form.type,
         variety: form.variety.trim() || null,
-        variety_image_url,
+        variety_image_url:
+          variety_image_urls.length > 0 ? variety_image_urls.join(",") : null,
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
         is_fruiting: form.is_fruiting,
         is_affected: form.is_affected,
         is_pruned: form.is_pruned,
         note: form.note.trim() || null,
+        farm_location: form.farm_location,
         image_urls,
       });
 
@@ -362,7 +522,7 @@ export default function RegisterPage() {
         msg: "Tree/plant registered successfully!",
       });
       setForm(INITIAL_FORM);
-      clearVarietyFile();
+      clearVarietyFiles();
       setPhotoFiles([]);
       setPhotoPreviews([]);
     } catch (err) {
@@ -375,37 +535,6 @@ export default function RegisterPage() {
     }
   };
 
-  // ─── Toggle Helper ──────────────────────────────────────────────────────
-
-  const Toggle = ({
-    label,
-    checked,
-    onChange,
-  }: {
-    label: string;
-    checked: boolean;
-    onChange: (v: boolean) => void;
-  }) => (
-    <div
-      className="flex items-center justify-between py-3 px-4 rounded-xl"
-      style={{
-        background: "var(--input-bg)",
-        border: "1px solid var(--input-border)",
-      }}
-    >
-      <span className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
-        {label}
-      </span>
-      <label className="toggle-switch">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        <span className="toggle-slider" />
-      </label>
-    </div>
-  );
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -413,73 +542,106 @@ export default function RegisterPage() {
   const lngNum = form.longitude ? parseFloat(form.longitude) : null;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--background)" }}>
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       {/* ── Header ── */}
       <header
-        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between border-b backdrop-blur-md"
+        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between border-b"
         style={{
-          background: "rgba(15, 17, 23, 0.85)",
-          borderColor: "var(--card-border)",
+          background: "rgba(10, 12, 16, 0.92)",
+          backdropFilter: "blur(12px) saturate(1.2)",
+          WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+          borderColor: "var(--border-primary)",
         }}
       >
-        <h1 className="text-lg font-bold" style={{ color: "var(--primary)" }}>
-          🌱 Register Tree / Plant
-        </h1>
+        <div>
+          <h1 className="text-base font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+            Mages Farms
+          </h1>
+          <p className="text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
+            Tree Registry
+          </p>
+        </div>
         <Link
           href="/map"
-          className="text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-all"
           style={{
-            background: "var(--input-bg)",
-            color: "var(--accent)",
-            border: "1px solid var(--input-border)",
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border-secondary)",
           }}
         >
-          🗺️ View Map
+          <IconMap size={14} />
+          View Map
         </Link>
       </header>
 
       {/* ── Form ── */}
       <main className="flex-1 px-4 py-6 max-w-lg mx-auto w-full">
-        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           {/* Submit result banner */}
           {submitResult && (
             <div
-              className="px-4 py-3 rounded-xl text-sm font-medium border"
+              className="px-4 py-3 rounded-xl text-sm font-medium border flex items-center gap-2.5"
               style={{
                 background: submitResult.ok
                   ? "var(--success-bg)"
-                  : "var(--error-bg)",
+                  : "var(--danger-bg)",
                 borderColor: submitResult.ok
                   ? "var(--success-border)"
-                  : "var(--error-border)",
-                color: submitResult.ok ? "var(--primary)" : "var(--danger)",
+                  : "var(--danger-border)",
+                color: submitResult.ok ? "var(--accent)" : "var(--danger)",
               }}
             >
+              {submitResult.ok ? <IconCheck size={16} /> : <IconX size={16} />}
               {submitResult.msg}
             </div>
           )}
 
+          {/* ── Farm Location ── */}
+          <div>
+            <SectionLabel required>Farm Location</SectionLabel>
+            <select
+              value={form.farm_location}
+              onChange={(e) => updateField("farm_location", e.target.value)}
+              className="w-full px-4 py-3 rounded-xl text-sm transition-all appearance-none"
+              style={{
+                background: "var(--bg-input)",
+                border: errors.farm_location
+                  ? "1px solid var(--danger)"
+                  : "1px solid var(--border-primary)",
+                color: form.farm_location ? "var(--text-primary)" : "var(--text-tertiary)",
+              }}
+            >
+              <option value="" disabled>Select a location</option>
+              <option value="Attuvampatti">Attuvampatti</option>
+              <option value="Gundupatti">Gundupatti</option>
+            </select>
+            {errors.farm_location && (
+              <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
+                {errors.farm_location}
+              </p>
+            )}
+          </div>
+
           {/* ── Tree ID ── */}
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-              Tree ID <span style={{ color: "var(--danger)" }}>*</span>
-            </label>
+            <SectionLabel required>Tree ID</SectionLabel>
             <input
               type="text"
               value={form.tree_id}
               onChange={(e) => updateField("tree_id", e.target.value)}
               placeholder="e.g. T-001"
-              className="w-full px-4 py-3 rounded-xl text-base outline-none transition-colors"
+              className="w-full px-4 py-3 rounded-xl text-sm transition-all"
               style={{
-                background: "var(--input-bg)",
+                background: "var(--bg-input)",
                 border: errors.tree_id
                   ? "1px solid var(--danger)"
-                  : "1px solid var(--input-border)",
-                color: "var(--foreground)",
+                  : "1px solid var(--border-primary)",
+                color: "var(--text-primary)",
               }}
             />
             {errors.tree_id && (
-              <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
                 {errors.tree_id}
               </p>
             )}
@@ -487,29 +649,27 @@ export default function RegisterPage() {
 
           {/* ── Type ── */}
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-              Type <span style={{ color: "var(--danger)" }}>*</span>
-            </label>
+            <SectionLabel required>Type</SectionLabel>
             <select
               value={form.type}
               onChange={(e) =>
                 updateField("type", e.target.value as FormData["type"])
               }
-              className="w-full px-4 py-3 rounded-xl text-base outline-none transition-colors appearance-none"
+              className="w-full px-4 py-3 rounded-xl text-sm transition-all appearance-none cursor-pointer"
               style={{
-                background: "var(--input-bg)",
+                background: "var(--bg-input)",
                 border: errors.type
                   ? "1px solid var(--danger)"
-                  : "1px solid var(--input-border)",
-                color: form.type ? "var(--foreground)" : "var(--muted)",
+                  : "1px solid var(--border-primary)",
+                color: form.type ? "var(--text-primary)" : "var(--text-tertiary)",
               }}
             >
               <option value="">Select type…</option>
-              <option value="tree">🌳 Tree</option>
-              <option value="plant">🌿 Plant</option>
+              <option value="tree">Tree</option>
+              <option value="plant">Plant</option>
             </select>
             {errors.type && (
-              <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
                 {errors.type}
               </p>
             )}
@@ -517,36 +677,35 @@ export default function RegisterPage() {
 
           {/* ── Variety ── */}
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-              Variety
-            </label>
+            <SectionLabel>Variety</SectionLabel>
             <input
               type="text"
               value={form.variety}
               onChange={(e) => updateField("variety", e.target.value)}
               placeholder="e.g. Mango, Tulsi, Neem…"
-              className="w-full px-4 py-3 rounded-xl text-base outline-none transition-colors"
+              className="w-full px-4 py-3 rounded-xl text-sm transition-all"
               style={{
-                background: "var(--input-bg)",
-                border: "1px solid var(--input-border)",
-                color: "var(--foreground)",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-primary)",
+                color: "var(--text-primary)",
               }}
             />
           </div>
 
-          {/* ── Variety Image (Camera or Gallery) ── */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium" style={{ color: "var(--foreground)" }}>
-              Variety Image
-            </label>
+          {/* ── Variety Images ── */}
+          <div className="space-y-2.5">
+            <SectionLabel hint={varietyPreviews.length > 0 ? `${varietyPreviews.length} file${varietyPreviews.length > 1 ? "s" : ""}` : undefined}>
+              Variety Photos
+            </SectionLabel>
 
             {/* Hidden native inputs */}
             <input
               ref={varietyGalleryInputRef}
               type="file"
               accept="image/*"
+              multiple
               className="hidden"
-              onChange={handleVarietyFileInput}
+              onChange={handleVarietyFilesInput}
             />
             <input
               ref={varietyCameraInputRef}
@@ -554,7 +713,7 @@ export default function RegisterPage() {
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={handleVarietyFileInput}
+              onChange={handleVarietyFilesInput}
             />
 
             {/* Action buttons */}
@@ -562,111 +721,102 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={() => setCameraModalTarget("variety")}
-                className="py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 style={{
-                  background: "var(--input-bg)",
-                  borderColor: "var(--input-border)",
-                  color: "var(--foreground)",
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-primary)",
+                  color: "var(--text-secondary)",
                 }}
               >
-                📷 Take Photo
+                <IconCamera size={14} />
+                Take Photo
               </button>
 
               <button
                 type="button"
                 onClick={() => varietyGalleryInputRef.current?.click()}
-                className="py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 style={{
-                  background: "var(--input-bg)",
-                  borderColor: "var(--input-border)",
-                  color: "var(--foreground)",
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-primary)",
+                  color: "var(--text-secondary)",
                 }}
               >
-                📁 Gallery File
+                <IconUpload size={14} />
+                Upload Files
               </button>
             </div>
 
-            {varietyPreview && (
-              <div className="mt-3 relative inline-block">
-                <img
-                  src={varietyPreview}
-                  alt="Variety preview"
-                  className="w-24 h-24 object-cover rounded-xl border"
-                  style={{ borderColor: "var(--input-border)" }}
-                />
-                <button
-                  type="button"
-                  onClick={clearVarietyFile}
-                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow"
-                  style={{
-                    background: "var(--danger)",
-                    color: "#fff",
-                  }}
-                >
-                  ×
-                </button>
+            {/* Variety Photos Preview Grid */}
+            {varietyPreviews.length > 0 && (
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {varietyPreviews.map((src, i) => (
+                  <div key={i} className="relative aspect-square group">
+                    <img
+                      src={src}
+                      alt={`Variety photo ${i + 1}`}
+                      className="w-full h-full object-cover rounded-lg"
+                      style={{ border: "1px solid var(--border-primary)" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeVarietyFile(i)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{
+                        background: "var(--danger)",
+                        color: "#fff",
+                      }}
+                      aria-label="Remove photo"
+                    >
+                      <IconX size={10} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* ── Location Section with Draggable Satellite Map ── */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
-                Location Coordinates <span style={{ color: "var(--danger)" }}>*</span>
-              </label>
-              <span className="text-xs text-gray-400">Drag pin on satellite map</span>
-            </div>
+          {/* ── Location Section ── */}
+          <div className="space-y-2.5">
+            <SectionLabel required hint="Drag pin or tap map">
+              Location
+            </SectionLabel>
 
             {/* Current Location Button */}
             <button
               type="button"
               onClick={handleGetLocation}
               disabled={geoStatus === "loading"}
-              className="w-full py-3 rounded-xl text-sm font-bold transition-all shadow"
+              className="w-full py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               style={{
                 background:
                   geoStatus === "loading"
-                    ? "var(--input-bg)"
-                    : "var(--accent)",
+                    ? "var(--bg-elevated)"
+                    : "var(--blue)",
                 color: "#fff",
                 opacity: geoStatus === "loading" ? 0.7 : 1,
+                border: "none",
               }}
             >
               {geoStatus === "loading" ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      className="opacity-25"
-                    />
-                    <path
-                      d="M4 12a8 8 0 018-8"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  Getting current location…
-                </span>
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Getting precise location…
+                </>
               ) : (
-                "📍 Use My Current Location"
+                <>
+                  <IconCrosshair size={15} />
+                  Use Current Location
+                </>
               )}
             </button>
 
             {geoStatus === "error" && geoError && (
               <p
-                className="text-xs px-3 py-2 rounded-lg"
+                className="text-xs px-3 py-2.5 rounded-lg"
                 style={{
-                  background: "var(--error-bg)",
+                  background: "var(--danger-bg)",
+                  border: "1px solid var(--danger-border)",
                   color: "var(--danger)",
                 }}
               >
@@ -682,9 +832,9 @@ export default function RegisterPage() {
             />
 
             {/* Lat / Long Numeric Inputs */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>
+                <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-tertiary)" }}>
                   Latitude
                 </label>
                 <input
@@ -693,13 +843,13 @@ export default function RegisterPage() {
                   value={form.latitude}
                   onChange={(e) => updateField("latitude", e.target.value)}
                   placeholder="12.345678"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-lg text-sm transition-all"
                   style={{
-                    background: "var(--input-bg)",
+                    background: "var(--bg-input)",
                     border: errors.latitude
                       ? "1px solid var(--danger)"
-                      : "1px solid var(--input-border)",
-                    color: "var(--foreground)",
+                      : "1px solid var(--border-primary)",
+                    color: "var(--text-primary)",
                   }}
                 />
                 {errors.latitude && (
@@ -710,7 +860,7 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>
+                <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-tertiary)" }}>
                   Longitude
                 </label>
                 <input
@@ -719,13 +869,13 @@ export default function RegisterPage() {
                   value={form.longitude}
                   onChange={(e) => updateField("longitude", e.target.value)}
                   placeholder="77.654321"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-lg text-sm transition-all"
                   style={{
-                    background: "var(--input-bg)",
+                    background: "var(--bg-input)",
                     border: errors.longitude
                       ? "1px solid var(--danger)"
-                      : "1px solid var(--input-border)",
-                    color: "var(--foreground)",
+                      : "1px solid var(--border-primary)",
+                    color: "var(--text-primary)",
                   }}
                 />
                 {errors.longitude && (
@@ -738,19 +888,20 @@ export default function RegisterPage() {
           </div>
 
           {/* ── Boolean Toggles ── */}
-          <div className="space-y-3">
+          <div className="space-y-2">
+            <SectionLabel>Status</SectionLabel>
             <Toggle
-              label="🍎 Is Fruiting?"
+              label="Fruiting"
               checked={form.is_fruiting}
               onChange={(v) => updateField("is_fruiting", v)}
             />
             <Toggle
-              label="🐛 Is Affected?"
+              label="Affected"
               checked={form.is_affected}
               onChange={(v) => updateField("is_affected", v)}
             />
             <Toggle
-              label="✂️ Is Pruned?"
+              label="Pruned"
               checked={form.is_pruned}
               onChange={(v) => updateField("is_pruned", v)}
             />
@@ -758,28 +909,26 @@ export default function RegisterPage() {
 
           {/* ── Note ── */}
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--foreground)" }}>
-              Note
-            </label>
+            <SectionLabel>Note</SectionLabel>
             <textarea
               value={form.note}
               onChange={(e) => updateField("note", e.target.value)}
               placeholder="Any additional notes…"
               rows={3}
-              className="w-full px-4 py-3 rounded-xl text-base outline-none resize-y transition-colors"
+              className="w-full px-4 py-3 rounded-xl text-sm resize-y transition-all"
               style={{
-                background: "var(--input-bg)",
-                border: "1px solid var(--input-border)",
-                color: "var(--foreground)",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-primary)",
+                color: "var(--text-primary)",
               }}
             />
           </div>
 
-          {/* ── Tree/Plant Images (Multiple photos, Camera & Gallery) ── */}
-          <div className="space-y-3">
-            <label className="block text-sm font-medium" style={{ color: "var(--foreground)" }}>
+          {/* ── Tree/Plant Images ── */}
+          <div className="space-y-2.5">
+            <SectionLabel hint={photoPreviews.length > 0 ? `${photoPreviews.length} file${photoPreviews.length > 1 ? "s" : ""}` : undefined}>
               Tree / Plant Photos
-            </label>
+            </SectionLabel>
 
             {/* Hidden native inputs */}
             <input
@@ -804,51 +953,53 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={() => setCameraModalTarget("photo")}
-                className="py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 style={{
-                  background: "var(--input-bg)",
-                  borderColor: "var(--input-border)",
-                  color: "var(--foreground)",
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-primary)",
+                  color: "var(--text-secondary)",
                 }}
               >
-                📷 Take Photo (Camera)
+                <IconCamera size={14} />
+                Take Photo
               </button>
 
               <button
                 type="button"
                 onClick={() => photoGalleryInputRef.current?.click()}
-                className="py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all hover:bg-white/5"
+                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 style={{
-                  background: "var(--input-bg)",
-                  borderColor: "var(--input-border)",
-                  color: "var(--foreground)",
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-primary)",
+                  color: "var(--text-secondary)",
                 }}
               >
-                📁 Choose from Gallery
+                <IconUpload size={14} />
+                Upload Files
               </button>
             </div>
 
             {/* Photos Preview Grid */}
             {photoPreviews.length > 0 && (
-              <div className="mt-3 grid grid-cols-4 gap-2">
+              <div className="mt-2 grid grid-cols-4 gap-2">
                 {photoPreviews.map((src, i) => (
-                  <div key={i} className="relative aspect-square">
+                  <div key={i} className="relative aspect-square group">
                     <img
                       src={src}
                       alt={`Photo ${i + 1}`}
-                      className="w-full h-full object-cover rounded-xl border"
-                      style={{ borderColor: "var(--input-border)" }}
+                      className="w-full h-full object-cover rounded-lg"
+                      style={{ border: "1px solid var(--border-primary)" }}
                     />
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}
-                      className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow"
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
                       style={{
                         background: "var(--danger)",
                         color: "#fff",
                       }}
                     >
-                      ×
+                      <IconX size={10} />
                     </button>
                   </div>
                 ))}
@@ -860,39 +1011,24 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-4 rounded-xl text-base font-bold transition-all shadow-lg"
+            className="w-full py-3.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] flex items-center justify-center gap-2"
             style={{
-              background: submitting ? "var(--muted)" : "var(--primary)",
+              background: submitting ? "var(--bg-elevated)" : "var(--accent)",
               color: "#fff",
-              opacity: submitting ? 0.7 : 1,
+              opacity: submitting ? 0.6 : 1,
+              border: "none",
             }}
           >
             {submitting ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg
-                  className="animate-spin h-5 w-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    className="opacity-25"
-                  />
-                  <path
-                    d="M4 12a8 8 0 018-8"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Registering…
-              </span>
+              </>
             ) : (
-              "✅ Register Tree / Plant"
+              <>
+                <IconCheck size={16} />
+                Register
+              </>
             )}
           </button>
         </form>
@@ -905,8 +1041,8 @@ export default function RegisterPage() {
         onCapture={handleCameraCapture}
         title={
           cameraModalTarget === "variety"
-            ? "Take Variety Photo"
-            : "Take Tree / Plant Photo"
+            ? "Variety Photo"
+            : "Tree / Plant Photo"
         }
       />
     </div>

@@ -9,21 +9,21 @@ import type { TreeRecord } from "@/lib/types";
 /**
  * Dynamic import of the MapView component with SSR disabled.
  * Leaflet requires `window` and `document`, so it cannot be rendered server-side.
- * The loading fallback is shown while the map component loads.
+ * The loading fallback is shown while the map component bundles initialize.
  */
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
   loading: () => (
     <div
       className="w-full h-screen flex items-center justify-center"
-      style={{ background: "var(--background)" }}
+      style={{ background: "var(--bg-primary)" }}
     >
       <div className="text-center space-y-3">
         <svg
           className="animate-spin h-8 w-8 mx-auto"
           viewBox="0 0 24 24"
           fill="none"
-          style={{ color: "var(--primary)" }}
+          style={{ color: "var(--accent)" }}
         >
           <circle
             cx="12"
@@ -31,7 +31,7 @@ const MapView = dynamic(() => import("./MapView"), {
             r="10"
             stroke="currentColor"
             strokeWidth="3"
-            className="opacity-25"
+            className="opacity-20"
           />
           <path
             d="M4 12a8 8 0 018-8"
@@ -40,8 +40,8 @@ const MapView = dynamic(() => import("./MapView"), {
             strokeLinecap="round"
           />
         </svg>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Loading map…
+        <p className="text-xs font-medium tracking-wide uppercase" style={{ color: "var(--text-tertiary)" }}>
+          Initializing Map
         </p>
       </div>
     </div>
@@ -72,18 +72,29 @@ export default function MapPage() {
     fetchTrees();
   }, []);
 
-  if (loading) {
-    return (
-      <div
-        className="w-full h-screen flex items-center justify-center"
-        style={{ background: "var(--background)" }}
-      >
-        <div className="text-center space-y-3">
+  return (
+    <div className="relative w-full h-screen overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+      {/* 
+        The map loads first itself without waiting for database queries to complete.
+        Markers render smoothly as soon as the data is fetched.
+      */}
+      <MapView trees={trees} />
+
+      {/* Floating Status Pill when fetching markers in background */}
+      {loading && (
+        <div
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-3.5 py-1.5 rounded-full shadow-lg backdrop-blur-md transition-all animate-pulse"
+          style={{
+            background: "rgba(17, 20, 27, 0.85)",
+            border: "1px solid var(--border-secondary)",
+            color: "var(--text-secondary)",
+          }}
+        >
           <svg
-            className="animate-spin h-8 w-8 mx-auto"
+            className="animate-spin h-3.5 w-3.5"
             viewBox="0 0 24 24"
             fill="none"
-            style={{ color: "var(--primary)" }}
+            style={{ color: "var(--accent)" }}
           >
             <circle
               cx="12"
@@ -100,87 +111,105 @@ export default function MapPage() {
               strokeLinecap="round"
             />
           </svg>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            Fetching tree data…
-          </p>
+          <span className="text-xs font-medium">Syncing tree records…</span>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  if (error) {
-    return (
-      <div
-        className="w-full h-screen flex items-center justify-center px-6"
-        style={{ background: "var(--background)" }}
-      >
+      {/* Non-intrusive floating error toast */}
+      {error && (
         <div
-          className="max-w-md w-full px-6 py-5 rounded-xl border text-center"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 px-4 py-2.5 rounded-xl shadow-xl backdrop-blur-md"
           style={{
-            background: "var(--error-bg)",
-            borderColor: "var(--error-border)",
+            background: "rgba(22, 10, 12, 0.95)",
+            border: "1px solid var(--danger)",
+            color: "var(--text-primary)",
           }}
         >
-          <p className="text-sm font-medium" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
+          <svg className="w-4 h-4 text-red-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span className="text-xs font-medium text-red-200">{error}</span>
           <button
             onClick={() => window.location.reload()}
-            className="mt-3 px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: "var(--danger)", color: "#fff" }}
+            className="px-2.5 py-1 rounded-md text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors"
           >
             Retry
           </button>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  return (
-    <div className="relative w-full h-screen overflow-hidden">
-      {/* Map fills the entire viewport */}
-      <MapView trees={trees} />
-
-      {/* Floating nav button — overlays the map */}
+      {/* Floating nav button — Register New */}
       <Link
         href="/register"
-        className="fixed top-4 right-4 z-[1000] px-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg backdrop-blur-md transition-all hover:scale-105"
+        className="fixed top-4 right-4 z-[1000] inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider shadow-lg backdrop-blur-md transition-all hover:scale-105 active:scale-95"
         style={{
-          background: "rgba(34, 197, 94, 0.9)",
-          color: "#fff",
-          border: "1px solid rgba(255,255,255,0.2)",
+          background: "var(--accent)",
+          color: "#ffffff",
+          border: "1px solid rgba(255,255,255,0.18)",
+          boxShadow: "0 6px 20px -2px rgba(22, 163, 74, 0.35)",
         }}
       >
-        ➕ Register New
+        <svg
+          className="w-3.5 h-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        <span>Register New</span>
       </Link>
 
-      {/* Floating legend */}
+      {/* Floating map legend */}
       <div
-        className="fixed bottom-6 left-4 z-[1000] px-4 py-3 rounded-xl text-xs space-y-1.5 backdrop-blur-md shadow-lg"
+        className="fixed bottom-6 left-4 z-[1000] px-3.5 py-3 rounded-xl text-xs space-y-2 backdrop-blur-md shadow-xl"
         style={{
-          background: "rgba(26, 29, 39, 0.9)",
-          border: "1px solid var(--card-border)",
-          color: "var(--foreground)",
+          background: "rgba(17, 20, 27, 0.88)",
+          border: "1px solid var(--border-secondary)",
+          color: "var(--text-secondary)",
         }}
       >
-        <div className="font-semibold text-sm mb-2" style={{ color: "var(--primary)" }}>
+        <div
+          className="font-semibold text-[11px] tracking-wider uppercase"
+          style={{ color: "var(--text-tertiary)" }}
+        >
           Legend
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#22c55e" }} />
-          Tree
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#22c55e", boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>Tree</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#86efac" }} />
-          Plant
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#86efac", boxShadow: "0 0 6px rgba(134, 239, 172, 0.4)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>Plant</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#ef4444" }} />
-          Affected
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#ef4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.4)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>Affected</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: "#3b82f6" }} />
-          Farm Entrance
+        <div
+          className="flex items-center gap-2.5 pt-1.5 border-t"
+          style={{ borderColor: "var(--border-primary)" }}
+        >
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#3a7bd5", boxShadow: "0 0 6px rgba(58, 123, 213, 0.6)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>You (GPS)</span>
         </div>
       </div>
     </div>

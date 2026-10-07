@@ -18,60 +18,67 @@ export type MapStyle = "google_hybrid" | "google_satellite" | "esri_satellite" |
 interface TileProvider {
   id: MapStyle;
   name: string;
-  badge: string;
+  label: string;
   url: string;
   attribution: string;
   maxZoom: number;
+  maxNativeZoom: number;
 }
 
 const TILE_PROVIDERS: Record<MapStyle, TileProvider> = {
   google_hybrid: {
     id: "google_hybrid",
     name: "Satellite Hybrid",
-    badge: "🛰️ Hybrid",
+    label: "Hybrid",
     url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
     attribution: "&copy; Google Maps",
-    maxZoom: 20,
+    maxZoom: 24,
+    maxNativeZoom: 20,
   },
   google_satellite: {
     id: "google_satellite",
     name: "Pure Satellite",
-    badge: "📷 Pure Sat",
+    label: "Satellite",
     url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
     attribution: "&copy; Google Maps",
-    maxZoom: 20,
+    maxZoom: 24,
+    maxNativeZoom: 20,
   },
   esri_satellite: {
     id: "esri_satellite",
     name: "Esri Satellite",
-    badge: "🌎 Esri Earth",
+    label: "Esri",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: "Tiles &copy; Esri",
-    maxZoom: 19,
+    maxZoom: 24,
+    maxNativeZoom: 19,
   },
   osm: {
     id: "osm",
     name: "Street Map",
-    badge: "🗺️ Street",
+    label: "Street",
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+    maxZoom: 24,
+    maxNativeZoom: 19,
   },
 };
 
 // ─── Custom Draggable Pin Icon ────────────────────────────────────────────────
 
-function createDraggablePinIcon(size = 38): L.DivIcon {
+function createDraggablePinIcon(size = 36): L.DivIcon {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="${size}" height="${size * 1.5}">
-      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
-      </filter>
-      <g filter="url(#shadow)">
+      <defs>
+        <filter id="pin-shadow" x="-30%" y="-20%" width="160%" height="150%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity="0.4"/>
+        </filter>
+      </defs>
+      <g filter="url(#pin-shadow)">
         <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z"
-              fill="#22c55e" stroke="#ffffff" stroke-width="2"/>
+              fill="#2d9d5e" stroke="#ffffff" stroke-width="1.5"/>
         <circle cx="12" cy="12" r="5" fill="#ffffff"/>
-        <circle cx="12" cy="12" r="2.5" fill="#15803d"/>
+        <circle cx="12" cy="12" r="2.5" fill="#1a6b3a"/>
       </g>
     </svg>`;
 
@@ -79,7 +86,7 @@ function createDraggablePinIcon(size = 38): L.DivIcon {
     html: svg,
     className: "draggable-marker-icon",
     iconSize: [size, size * 1.5],
-    iconAnchor: [size / 2, size * 1.5], // Bottom point of pin
+    iconAnchor: [size / 2, size * 1.5],
   });
 }
 
@@ -176,13 +183,20 @@ export default function LocationPickerMap({
   );
 
   return (
-    <div className="relative w-full h-[320px] rounded-2xl overflow-hidden border border-[var(--input-border)] shadow-inner">
-      {/* ── Layer Switcher Toolbar ── */}
+    <div
+      className="relative w-full h-[320px] overflow-hidden"
+      style={{
+        borderRadius: "var(--radius-lg)",
+        border: "1px solid var(--border-primary)",
+      }}
+    >
+      {/* ── Layer Switcher ── */}
       <div
-        className="absolute top-2 right-2 z-[1000] flex items-center gap-1 p-1 rounded-xl backdrop-blur-md shadow-md"
+        className="absolute top-2.5 right-2.5 z-[1000] flex items-center gap-0.5 p-1 rounded-lg"
         style={{
-          background: "rgba(15, 17, 23, 0.85)",
-          border: "1px solid rgba(255, 255, 255, 0.12)",
+          background: "rgba(10, 12, 16, 0.88)",
+          backdropFilter: "blur(8px)",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
         }}
       >
         {(Object.keys(TILE_PROVIDERS) as MapStyle[]).map((key) => {
@@ -193,13 +207,13 @@ export default function LocationPickerMap({
               key={key}
               type="button"
               onClick={() => setActiveStyle(key)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                isActive
-                  ? "bg-emerald-600 text-white shadow"
-                  : "text-gray-300 hover:bg-white/10 hover:text-white"
-              }`}
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium transition-all"
+              style={{
+                background: isActive ? "var(--accent)" : "transparent",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.5)",
+              }}
             >
-              {provider.badge}
+              {provider.label}
             </button>
           );
         })}
@@ -207,29 +221,36 @@ export default function LocationPickerMap({
 
       {/* ── Instruction Banner ── */}
       <div
-        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] px-3 py-1.5 rounded-full text-xs font-medium text-center backdrop-blur-md shadow-md pointer-events-none flex items-center gap-1.5 whitespace-nowrap"
+        className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-[1000] px-3 py-1.5 rounded-full text-[11px] font-medium text-center pointer-events-none flex items-center gap-1.5 whitespace-nowrap"
         style={{
-          background: "rgba(15, 17, 23, 0.9)",
-          border: "1px solid rgba(34, 197, 94, 0.4)",
-          color: "var(--foreground)",
+          background: "rgba(10, 12, 16, 0.88)",
+          backdropFilter: "blur(8px)",
+          border: "1px solid rgba(45, 157, 94, 0.3)",
+          color: "var(--text-secondary)",
         }}
       >
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span>Drag pin or click map to set exact tree position</span>
+        <span
+          className="w-1.5 h-1.5 rounded-full animate-pulse"
+          style={{ background: "var(--accent)" }}
+        />
+        Drag pin or tap to set position
       </div>
 
       {/* ── Leaflet Map ── */}
       <MapContainer
         center={center}
         zoom={hasCoords ? 19 : 14}
+        maxZoom={24}
+        minZoom={2}
         style={{ width: "100%", height: "100%" }}
-        zoomControl={false}
+        zoomControl={true}
       >
         <TileLayer
           key={activeStyle}
           attribution={currentProvider.attribution}
           url={currentProvider.url}
           maxZoom={currentProvider.maxZoom}
+          maxNativeZoom={currentProvider.maxNativeZoom}
         />
 
         <MapRecenter lat={lat} lng={lng} />

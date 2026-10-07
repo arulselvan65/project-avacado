@@ -10,13 +10,14 @@ create table if not exists public.trees (
   tree_id         text            not null,
   type            text            not null check (type in ('tree', 'plant')),
   variety         text,
-  variety_image_url text,
+  variety_image_url text, -- Stores image URL (or comma-separated URLs if multiple variety photos are uploaded)
   latitude        double precision not null,
   longitude       double precision not null,
   is_fruiting     boolean         not null default false,
   is_affected     boolean         not null default false,
   is_pruned       boolean         not null default false,
   note            text,
+  farm_location   text,
   image_urls      text[]          not null default '{}'
 );
 
