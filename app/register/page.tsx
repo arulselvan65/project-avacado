@@ -274,6 +274,8 @@ export default function RegisterPage() {
 
   // ─── Geolocation & Map handler ──────────────────────────────────────────
 
+  const watchIdRef = useRef<number | null>(null);
+
   const handleGetLocation = useCallback(() => {
     if (typeof window !== "undefined" && !window.isSecureContext) {
       setGeoStatus("error");
@@ -292,17 +294,16 @@ export default function RegisterPage() {
     setGeoStatus("loading");
     setGeoError("");
 
-    // Use a dual-attempt strategy for maximum precision:
-    // 1. First, get an initial position quickly.
-    // 2. Then start a short watchPosition to refine with GPS (higher accuracy).
-    // Keep the best result (lowest accuracy value = most precise).
     let bestAccuracy = Infinity;
     let settled = false;
 
     const applyPosition = (pos: GeolocationPosition) => {
       const acc = pos.coords.accuracy ?? Infinity;
+      // Ignore highly inaccurate IP-based locations if we already have a decent fix
+      if (bestAccuracy < 1000 && acc > 2000) return;
+
       if (acc < bestAccuracy || !settled) {
-        bestAccuracy = acc;
+        bestAccuracy = Math.min(acc, bestAccuracy);
         setForm((prev) => ({
           ...prev,
           latitude: pos.coords.latitude.toFixed(6),
@@ -349,8 +350,13 @@ export default function RegisterPage() {
           () => { /* ignore watch errors, we already have a fix */ },
           { enableHighAccuracy: true, maximumAge: 0 }
         );
+        watchIdRef.current = watchId;
+
         setTimeout(() => {
-          navigator.geolocation.clearWatch(watchId);
+          if (watchIdRef.current === watchId) {
+            navigator.geolocation.clearWatch(watchId);
+            watchIdRef.current = null;
+          }
           if (!settled) {
             settled = true;
             setGeoStatus("idle");
@@ -358,12 +364,19 @@ export default function RegisterPage() {
         }, 5000);
       },
       handleError,
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   }, []);
 
   const handleMapLocationSelect = useCallback(
     (lat: number, lng: number) => {
+      // If user interacts with map, cancel any ongoing watchPosition refinement
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+        setGeoStatus("idle");
+      }
+      
       setForm((prev) => ({
         ...prev,
         latitude: lat.toFixed(6),
