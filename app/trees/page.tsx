@@ -85,7 +85,6 @@ export default function TreesListPage() {
   const filteredTrees = useMemo(() => {
     return trees
       .filter((t) => {
-        // Search query
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
           const matchId = t.tree_id?.toLowerCase().includes(q);
@@ -97,17 +96,14 @@ export default function TreesListPage() {
           }
         }
 
-        // Location filter
         if (locationFilter !== "ALL") {
           if (t.farm_location !== locationFilter) return false;
         }
 
-        // Type filter
         if (typeFilter !== "ALL") {
           if (t.type !== typeFilter) return false;
         }
 
-        // Status filter
         if (statusFilter === "fruiting" && !t.is_fruiting) return false;
         if (statusFilter === "affected" && !t.is_affected) return false;
         if (statusFilter === "pruned" && !t.is_pruned) return false;
@@ -153,7 +149,7 @@ export default function TreesListPage() {
       setTrees((prev) => prev.filter((t) => t.id !== deletingTree.id));
       setDeletingTree(null);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to delete";
+      const message = err instanceof Error ? err.message : "Failed to delete record";
       alert(message);
     } finally {
       setIsDeleting(false);
@@ -170,56 +166,60 @@ export default function TreesListPage() {
   const copyCoordinates = (lat: number, lng: number) => {
     const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     navigator.clipboard.writeText(text);
-    alert(`Copied coordinates to clipboard:\n${text}`);
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+    <div className="min-h-screen flex flex-col w-full max-w-full overflow-x-hidden" style={{ background: "var(--bg-primary)" }}>
       <Navbar />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-5 sm:py-6 space-y-5 sm:space-y-6">
         {/* Header Title & Register Action */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">📋</span>
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight" style={{ color: "var(--text-primary)" }}>
-                Registered Tree Records
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </div>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-zinc-100">
+                Registered Inventory
               </h1>
             </div>
-            <p className="text-xs sm:text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-              Manage, search, and edit tree details, varieties, photos, and GPS coordinates line-by-line.
+            <p className="text-xs text-zinc-400 mt-1">
+              Field inventory and location records for Mages Farms
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={fetchTrees}
               disabled={loading}
-              className="p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all hover:bg-white/5 active:scale-95"
-              style={{
-                borderColor: "var(--border-secondary)",
-                color: "var(--text-secondary)",
-              }}
-              title="Refresh tree list"
+              className="p-2.5 rounded-xl border border-zinc-800 text-xs font-semibold text-zinc-300 flex items-center gap-1.5 hover:bg-white/5 active:scale-95 transition-all"
+              title="Refresh inventory records"
             >
-              <svg className={`w-4 h-4 ${loading ? "animate-spin text-green-400" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-400" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M23 4v6h-6" />
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
-              <span className="hidden xs:inline">Refresh</span>
+              <span className="hidden xs:inline">Sync</span>
             </button>
 
             <Link
               href="/register"
-              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold uppercase tracking-wider flex items-center gap-2 transition-all hover:scale-105 active:scale-95 shadow-lg"
+              className="px-3.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 shadow-md"
               style={{
                 background: "var(--accent)",
                 color: "#ffffff",
                 boxShadow: "0 4px 15px rgba(22, 163, 74, 0.35)",
               }}
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -228,8 +228,8 @@ export default function TreesListPage() {
           </div>
         </div>
 
-        {/* Stats Metrics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        {/* Professional Metrics Overview */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
           <div
             className="p-3.5 rounded-2xl border flex flex-col justify-between"
             style={{
@@ -237,15 +237,15 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              Total Plants
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Total Records
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold" style={{ color: "var(--text-primary)" }}>
+              <span className="text-xl sm:text-2xl font-extrabold text-zinc-100">
                 {stats.total}
               </span>
-              <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
-                100%
+              <span className="text-[10px] font-semibold text-zinc-500">
+                {stats.treeCount}T / {stats.plantCount}P
               </span>
             </div>
           </div>
@@ -257,14 +257,14 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
               Attuvampatti
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold text-emerald-400">
+              <span className="text-xl sm:text-2xl font-extrabold text-emerald-400">
                 {stats.attuvampattiCount}
               </span>
-              <span className="text-xs">🏡</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
             </div>
           </div>
 
@@ -275,14 +275,14 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
               Gundupatti
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold text-teal-400">
+              <span className="text-xl sm:text-2xl font-extrabold text-teal-400">
                 {stats.gundupattiCount}
               </span>
-              <span className="text-xs">🏞️</span>
+              <span className="w-2 h-2 rounded-full bg-teal-400" />
             </div>
           </div>
 
@@ -293,14 +293,14 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              Fruiting
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Fruiting Active
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold text-emerald-300">
+              <span className="text-xl sm:text-2xl font-extrabold text-emerald-300">
                 {stats.fruitingCount}
               </span>
-              <span className="text-xs">🍋</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-300" />
             </div>
           </div>
 
@@ -311,14 +311,14 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              Affected
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Affected Flags
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold text-red-400">
+              <span className="text-xl sm:text-2xl font-extrabold text-red-400">
                 {stats.affectedCount}
               </span>
-              <span className="text-xs">⚠️</span>
+              <span className="w-2 h-2 rounded-full bg-red-400" />
             </div>
           </div>
 
@@ -329,31 +329,31 @@ export default function TreesListPage() {
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              Pruned
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Pruned Status
             </span>
             <div className="flex items-baseline justify-between mt-2">
-              <span className="text-2xl font-extrabold text-amber-400">
+              <span className="text-xl sm:text-2xl font-extrabold text-amber-400">
                 {stats.prunedCount}
               </span>
-              <span className="text-xs">✂️</span>
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
             </div>
           </div>
         </div>
 
         {/* Filter & Search Bar */}
         <div
-          className="p-4 rounded-2xl border space-y-3.5"
+          className="p-3.5 sm:p-4 rounded-2xl border space-y-3"
           style={{
             background: "var(--bg-card)",
             borderColor: "var(--border-secondary)",
           }}
         >
           {/* Search Input & Sort */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="relative flex-1">
               <svg
-                className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400"
+                className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -366,8 +366,8 @@ export default function TreesListPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by Tree ID, Variety, Notes, or Location…"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm focus:outline-none transition-all"
+                placeholder="Search Tree ID, Variety, Note, Location…"
+                className="w-full pl-10 pr-4 py-2 rounded-xl border text-xs sm:text-sm focus:outline-none transition-all"
                 style={{
                   background: "var(--bg-input)",
                   borderColor: "var(--border-primary)",
@@ -385,11 +385,11 @@ export default function TreesListPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-zinc-400 shrink-0">Sort:</span>
+              <span className="text-xs font-semibold text-zinc-500 shrink-0">Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                className="px-3 py-2.5 rounded-xl border text-xs font-semibold focus:outline-none"
+                className="px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none"
                 style={{
                   background: "var(--bg-input)",
                   borderColor: "var(--border-primary)",
@@ -405,19 +405,19 @@ export default function TreesListPage() {
           </div>
 
           {/* Filter Chips */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 border-t" style={{ borderColor: "var(--border-primary)" }}>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-2 border-t" style={{ borderColor: "var(--border-primary)" }}>
             {/* Location Filters */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
                 Location:
               </span>
               {(["ALL", "Attuvampatti", "Gundupatti"] as const).map((loc) => (
                 <button
                   key={loc}
                   onClick={() => setLocationFilter(loc)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                     locationFilter === loc
-                      ? "bg-emerald-500 text-white font-bold shadow-sm"
+                      ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-white/5 text-zinc-400 hover:bg-white/10"
                   }`}
                 >
@@ -426,46 +426,46 @@ export default function TreesListPage() {
               ))}
             </div>
 
-            <div className="h-4 w-px bg-zinc-800 hidden sm:block mx-1" />
+            <div className="h-3.5 w-px bg-zinc-800 hidden sm:block mx-1" />
 
             {/* Type Filters */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
                 Type:
               </span>
               {(["ALL", "tree", "plant"] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTypeFilter(t)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                     typeFilter === t
-                      ? "bg-emerald-500 text-white font-bold shadow-sm"
+                      ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-white/5 text-zinc-400 hover:bg-white/10"
                   }`}
                 >
-                  {t === "ALL" ? "All Types" : t === "tree" ? "🌳 Trees" : "🌱 Plants"}
+                  {t === "ALL" ? "All Types" : t === "tree" ? "Tree" : "Plant"}
                 </button>
               ))}
             </div>
 
-            <div className="h-4 w-px bg-zinc-800 hidden sm:block mx-1" />
+            <div className="h-3.5 w-px bg-zinc-800 hidden sm:block mx-1" />
 
             {/* Status Filters */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
                 Status:
               </span>
               {(["ALL", "fruiting", "affected", "pruned"] as const).map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                     statusFilter === st
-                      ? "bg-emerald-500 text-white font-bold shadow-sm"
+                      ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-white/5 text-zinc-400 hover:bg-white/10"
                   }`}
                 >
-                  {st === "ALL" ? "All Statuses" : st === "fruiting" ? "🍋 Fruiting" : st === "affected" ? "⚠️ Affected" : "✂️ Pruned"}
+                  {st === "ALL" ? "All" : st === "fruiting" ? "Fruiting" : st === "affected" ? "Affected" : "Pruned"}
                 </button>
               ))}
             </div>
@@ -474,25 +474,18 @@ export default function TreesListPage() {
 
         {/* Loading state */}
         {loading && (
-          <div className="py-20 text-center space-y-3">
-            <div className="w-8 h-8 border-3 border-green-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="py-16 text-center space-y-3">
+            <div className="w-7 h-7 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-              Loading tree records from database…
+              Loading inventory records…
             </p>
           </div>
         )}
 
         {/* Error state */}
         {error && !loading && (
-          <div
-            className="p-5 rounded-2xl border text-center space-y-3"
-            style={{
-              background: "rgba(239, 68, 68, 0.1)",
-              borderColor: "rgba(239, 68, 68, 0.3)",
-              color: "#f87171",
-            }}
-          >
-            <p className="font-semibold text-sm">Failed to load trees: {error}</p>
+          <div className="p-5 rounded-2xl border border-red-500/30 bg-red-500/10 text-center space-y-3">
+            <p className="font-semibold text-xs text-red-300">Failed to load records: {error}</p>
             <button
               onClick={fetchTrees}
               className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all"
@@ -505,28 +498,29 @@ export default function TreesListPage() {
         {/* Empty state */}
         {!loading && !error && filteredTrees.length === 0 && (
           <div
-            className="py-16 px-4 rounded-2xl border text-center space-y-3"
+            className="py-14 px-4 rounded-2xl border text-center space-y-3"
             style={{
               background: "var(--bg-card)",
               borderColor: "var(--border-secondary)",
             }}
           >
-            <span className="text-4xl">🌱</span>
-            <h3 className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
-              No trees or plants found
+            <div className="w-10 h-10 rounded-xl bg-zinc-800 mx-auto flex items-center justify-center text-zinc-400">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+            <h3 className="font-bold text-sm text-zinc-100">
+              No matching records found
             </h3>
-            <p className="text-xs max-w-md mx-auto" style={{ color: "var(--text-tertiary)" }}>
+            <p className="text-xs max-w-md mx-auto text-zinc-400">
               {searchQuery || locationFilter !== "ALL" || typeFilter !== "ALL" || statusFilter !== "ALL"
-                ? "No records match the current filter or search criteria. Try adjusting your filters."
-                : "No tree records have been registered yet. Click below to register your first tree."}
+                ? "No trees match the current filter or search criteria. Try adjusting your parameters."
+                : "No trees or plants have been registered yet."}
             </p>
             <Link
               href="/register"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider mt-2 transition-transform hover:scale-105"
-              style={{
-                background: "var(--accent)",
-                color: "#ffffff",
-              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider mt-2 bg-emerald-600 hover:bg-emerald-500 text-white transition-all"
             >
               <span>+ Register New Tree</span>
             </Link>
@@ -536,14 +530,14 @@ export default function TreesListPage() {
         {/* Line-by-Line Tree Records List */}
         {!loading && !error && filteredTrees.length > 0 && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs px-1" style={{ color: "var(--text-tertiary)" }}>
+            <div className="flex items-center justify-between text-xs px-1 text-zinc-400">
               <span>
-                Showing <strong style={{ color: "var(--text-primary)" }}>{filteredTrees.length}</strong> of{" "}
-                <strong>{trees.length}</strong> registered records
+                Showing <strong className="text-zinc-100">{filteredTrees.length}</strong> of{" "}
+                <strong>{trees.length}</strong> records
               </span>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredTrees.map((tree) => {
                 const varietyUrls = getVarietyImageUrls(tree.variety_image_url);
                 const photos = tree.image_urls || [];
@@ -552,70 +546,66 @@ export default function TreesListPage() {
                 return (
                   <div
                     key={tree.id}
-                    className="p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:border-green-500/40 group"
+                    className="p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 hover:border-emerald-500/40"
                     style={{
                       background: "var(--bg-card)",
                       borderColor: "var(--border-secondary)",
                     }}
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      {/* Left: Identifiers & Details */}
-                      <div className="flex-1 space-y-2.5">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
+                      {/* Left: Details */}
+                      <div className="flex-1 space-y-2 min-w-0">
                         {/* Badges row */}
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                           <span
-                            className="px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase tracking-wide border"
+                            className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold tracking-wide border"
                             style={{
-                              background: "rgba(34, 197, 94, 0.15)",
-                              borderColor: "rgba(74, 222, 128, 0.4)",
+                              background: "rgba(34, 197, 94, 0.12)",
+                              borderColor: "rgba(74, 222, 128, 0.3)",
                               color: "#4ade80",
                             }}
                           >
-                            {tree.tree_id || "NO-TAG"}
+                            {tree.tree_id || "UNTAGGED"}
                           </span>
 
                           <span
-                            className={`px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wider ${
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                               tree.type === "plant"
-                                ? "bg-emerald-950 text-emerald-300 border border-emerald-800/60"
-                                : "bg-green-950 text-green-300 border border-green-800/60"
+                                ? "bg-teal-950/80 text-teal-300 border border-teal-800/60"
+                                : "bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
                             }`}
                           >
-                            {tree.type === "plant" ? "🌱 Plant" : "🌳 Tree"}
+                            {tree.type === "plant" ? "Plant" : "Tree"}
                           </span>
 
-                          <span
-                            className="px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wider border"
-                            style={{
-                              background: "rgba(255, 255, 255, 0.05)",
-                              borderColor: "var(--border-primary)",
-                              color: "var(--text-secondary)",
-                            }}
-                          >
-                            📍 {tree.farm_location || "Attuvampatti"}
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-300 bg-white/5 border border-white/10">
+                            {tree.farm_location || "Attuvampatti"}
                           </span>
 
                           {/* Status Flags */}
                           {tree.is_fruiting && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              🍋 Fruiting
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              <span>Fruiting</span>
                             </span>
                           )}
 
                           {tree.is_affected && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/40">
-                              ⚠️ Affected
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-red-500/15 text-red-300 border border-red-500/30 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                              <span>Affected</span>
                             </span>
                           )}
 
                           {tree.is_pruned && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                              ✂️ Pruned
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                              <span>Pruned</span>
                             </span>
                           )}
 
                           {tree.created_at && (
-                            <span className="text-[11px] ml-auto text-zinc-500 hidden sm:inline">
+                            <span className="text-[10px] ml-auto text-zinc-500 hidden sm:inline">
                               {new Date(tree.created_at).toLocaleDateString("en-IN", {
                                 day: "numeric",
                                 month: "short",
@@ -625,63 +615,54 @@ export default function TreesListPage() {
                           )}
                         </div>
 
-                        {/* Variety & Notes */}
+                        {/* Variety & Location info */}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                           {tree.variety && (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-zinc-500 uppercase text-[10px] font-semibold">Variety:</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-zinc-500 text-[10px] font-semibold uppercase">Variety:</span>
                               <span className="font-semibold text-zinc-200">{tree.variety}</span>
                             </div>
                           )}
 
-                          {/* GPS Coordinates with copy */}
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-zinc-500 uppercase text-[10px] font-semibold">GPS:</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-zinc-500 text-[10px] font-semibold uppercase">GPS:</span>
                             <button
                               onClick={() => copyCoordinates(tree.latitude, tree.longitude)}
-                              className="font-mono text-zinc-300 hover:text-green-400 underline decoration-dotted decoration-zinc-600 transition-colors"
-                              title="Click to copy GPS coordinates"
+                              className="font-mono text-zinc-300 hover:text-emerald-400 transition-colors text-xs"
+                              title="Click to copy coordinates"
                             >
                               {tree.latitude?.toFixed(6)}, {tree.longitude?.toFixed(6)}
                             </button>
                           </div>
                         </div>
 
-                        {/* Note text */}
+                        {/* Note */}
                         {tree.note && (
-                          <p className="text-xs text-zinc-400 bg-white/[0.02] p-2 rounded-lg border border-white/5 italic">
-                            &ldquo;{tree.note}&rdquo;
+                          <p className="text-xs text-zinc-400 bg-white/[0.02] px-2.5 py-1.5 rounded-lg border border-white/5 truncate">
+                            {tree.note}
                           </p>
                         )}
                       </div>
 
-                      {/* Middle: Photos gallery thumbnails */}
+                      {/* Middle: Photos gallery */}
                       {allPhotos.length > 0 && (
-                        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto py-1">
-                          {allPhotos.slice(0, 4).map((url, imgIdx) => (
+                        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto py-0.5">
+                          {allPhotos.slice(0, 3).map((url, imgIdx) => (
                             <button
                               key={imgIdx}
                               onClick={() => openLightbox(allPhotos, imgIdx)}
-                              className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl border border-zinc-700/60 overflow-hidden hover:scale-105 active:scale-95 transition-transform group/img"
-                              title="Click to view full image"
+                              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl border border-zinc-700/60 overflow-hidden hover:scale-105 active:scale-95 transition-transform"
+                              title="View photo"
                             >
                               <img src={url} alt={`Photo ${imgIdx}`} className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
-                                <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <circle cx="11" cy="11" r="8" />
-                                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                  <line x1="11" y1="8" x2="11" y2="14" />
-                                  <line x1="8" y1="11" x2="14" y2="11" />
-                                </svg>
-                              </div>
                             </button>
                           ))}
-                          {allPhotos.length > 4 && (
+                          {allPhotos.length > 3 && (
                             <button
-                              onClick={() => openLightbox(allPhotos, 4)}
-                              className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl border border-zinc-700/60 bg-zinc-900 flex items-center justify-center text-xs font-bold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+                              onClick={() => openLightbox(allPhotos, 3)}
+                              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl border border-zinc-700/60 bg-zinc-900 flex items-center justify-center text-xs font-bold text-zinc-400 hover:text-white"
                             >
-                              +{allPhotos.length - 4}
+                              +{allPhotos.length - 3}
                             </button>
                           )}
                         </div>
@@ -692,12 +673,7 @@ export default function TreesListPage() {
                         {/* Edit Button */}
                         <button
                           onClick={() => setEditingTree(tree)}
-                          className="px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all hover:bg-emerald-500/15 hover:border-emerald-500/40 hover:text-emerald-300 active:scale-95"
-                          style={{
-                            background: "rgba(255, 255, 255, 0.03)",
-                            borderColor: "var(--border-primary)",
-                            color: "var(--text-secondary)",
-                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-zinc-700 bg-white/[0.02] text-zinc-200 hover:bg-emerald-500/15 hover:border-emerald-500/40 hover:text-emerald-300 active:scale-95 transition-all flex items-center gap-1.5"
                         >
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -709,12 +685,8 @@ export default function TreesListPage() {
                         {/* View on Map */}
                         <Link
                           href="/map"
-                          className="p-2 rounded-xl text-xs font-semibold border flex items-center justify-center transition-all hover:bg-white/10 hover:text-white active:scale-95"
-                          style={{
-                            borderColor: "var(--border-primary)",
-                            color: "var(--text-secondary)",
-                          }}
-                          title="View on Map"
+                          className="p-2 rounded-xl text-xs border border-zinc-800 text-zinc-400 hover:text-white hover:bg-white/5 active:scale-95 transition-all"
+                          title="Open Map View"
                         >
                           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
@@ -726,12 +698,8 @@ export default function TreesListPage() {
                         {/* Delete Button */}
                         <button
                           onClick={() => setDeletingTree(tree)}
-                          className="p-2 rounded-xl text-xs font-semibold border flex items-center justify-center transition-all hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-400 active:scale-95"
-                          style={{
-                            borderColor: "var(--border-primary)",
-                            color: "var(--text-tertiary)",
-                          }}
-                          title="Delete tree record"
+                          className="p-2 rounded-xl text-xs border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 active:scale-95 transition-all"
+                          title="Delete record"
                         >
                           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <polyline points="3 6 5 6 21 6" />
@@ -760,26 +728,30 @@ export default function TreesListPage() {
       {deletingTree && (
         <div className="fixed inset-0 z-[1300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div
-            className="w-full max-w-md p-6 rounded-2xl border shadow-2xl space-y-4"
+            className="w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4"
             style={{
               background: "var(--bg-card)",
               borderColor: "var(--border-secondary)",
             }}
           >
             <div className="flex items-center gap-3 text-red-400">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-xl">
-                ⚠️
+              <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
               </div>
               <div>
-                <h3 className="font-bold text-base text-zinc-100">Delete Tree Record</h3>
+                <h3 className="font-bold text-sm text-zinc-100">Delete Tree Record</h3>
                 <p className="text-xs text-zinc-400">This action cannot be undone.</p>
               </div>
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Are you sure you want to delete tree{" "}
+              Confirm deletion of tree record{" "}
               <strong className="text-white font-mono">{deletingTree.tree_id}</strong> (
-              {deletingTree.farm_location || "Attuvampatti"})? This will permanently remove the record from the database.
+              {deletingTree.farm_location || "Attuvampatti"}).
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -797,7 +769,7 @@ export default function TreesListPage() {
                 disabled={isDeleting}
                 className="px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-600 hover:bg-red-500 text-white transition-all active:scale-95 disabled:opacity-50"
               >
-                {isDeleting ? "Deleting…" : "Delete Permanently"}
+                {isDeleting ? "Deleting…" : "Confirm Delete"}
               </button>
             </div>
           </div>
@@ -807,17 +779,16 @@ export default function TreesListPage() {
       {/* Fullscreen Image Lightbox Modal with separate exit button & navigation */}
       {lightboxImages.length > 0 && (
         <div className="fixed inset-0 z-[1400] flex flex-col items-center justify-between p-4 bg-black/95 backdrop-blur-xl">
-          {/* Top Bar with Clear Separate Exit Button */}
           <div className="w-full max-w-4xl flex items-center justify-between py-2 shrink-0">
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              Image {lightboxIndex + 1} of {lightboxImages.length}
+              Photo {lightboxIndex + 1} of {lightboxImages.length}
             </span>
 
             <button
               type="button"
               onClick={() => setLightboxImages([])}
               className="px-3.5 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900/80 hover:bg-red-600 hover:border-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-lg"
-              title="Close Full Image Viewer"
+              title="Close Fullscreen View"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -827,7 +798,6 @@ export default function TreesListPage() {
             </button>
           </div>
 
-          {/* Main Image View */}
           <div className="relative flex-1 w-full max-w-4xl flex items-center justify-center overflow-hidden my-auto">
             <img
               src={lightboxImages[lightboxIndex]}
@@ -835,7 +805,6 @@ export default function TreesListPage() {
               className="max-h-[78vh] max-w-full object-contain rounded-xl shadow-2xl"
             />
 
-            {/* Prev Button */}
             {lightboxImages.length > 1 && (
               <button
                 type="button"
@@ -853,7 +822,6 @@ export default function TreesListPage() {
               </button>
             )}
 
-            {/* Next Button */}
             {lightboxImages.length > 1 && (
               <button
                 type="button"
@@ -872,7 +840,6 @@ export default function TreesListPage() {
             )}
           </div>
 
-          {/* Bottom Thumbnails */}
           {lightboxImages.length > 1 && (
             <div className="flex items-center gap-2 overflow-x-auto py-2 max-w-full shrink-0">
               {lightboxImages.map((src, idx) => (
@@ -881,7 +848,7 @@ export default function TreesListPage() {
                   onClick={() => setLightboxIndex(idx)}
                   className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
                     idx === lightboxIndex
-                      ? "border-green-400 scale-105"
+                      ? "border-emerald-400 scale-105"
                       : "border-zinc-800 opacity-60 hover:opacity-100"
                   }`}
                 >

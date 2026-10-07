@@ -567,7 +567,7 @@ export default function RegisterPage() {
   const lngNum = form.longitude ? parseFloat(form.longitude) : null;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+    <div className="min-h-screen flex flex-col w-full max-w-full overflow-x-hidden" style={{ background: "var(--bg-primary)" }}>
       {/* ── Universal Navbar ── */}
       <Navbar />
 

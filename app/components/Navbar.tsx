@@ -1,16 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 export default function Navbar() {
   const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
     {
       href: "/register",
       label: "Register Tree",
-      shortLabel: "Register",
       icon: (
         <svg
           className="w-4 h-4"
@@ -29,7 +30,6 @@ export default function Navbar() {
     {
       href: "/trees",
       label: "Tree Records",
-      shortLabel: "Records",
       icon: (
         <svg
           className="w-4 h-4"
@@ -52,7 +52,6 @@ export default function Navbar() {
     {
       href: "/map",
       label: "Live Map",
-      shortLabel: "Map",
       icon: (
         <svg
           className="w-4 h-4"
@@ -73,57 +72,70 @@ export default function Navbar() {
 
   return (
     <header
-      className="sticky top-0 z-[1100] w-full backdrop-blur-xl border-b transition-colors"
+      className="sticky top-0 z-[1100] w-full border-b transition-colors"
       style={{
-        background: "rgba(10, 12, 16, 0.85)",
+        background: "rgba(10, 12, 16, 0.92)",
+        backdropFilter: "blur(16px) saturate(1.2)",
+        WebkitBackdropFilter: "blur(16px) saturate(1.2)",
         borderColor: "var(--border-secondary)",
       }}
     >
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
         {/* Brand Logo & Title */}
         <Link
           href="/register"
           className="flex items-center gap-2.5 group shrink-0"
         >
           <div
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-lg shadow-md transition-transform group-hover:scale-105"
+            className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shadow-sm transition-transform group-hover:scale-105"
             style={{
-              background:
-                "linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(22, 163, 74, 0.4))",
-              border: "1px solid rgba(74, 222, 128, 0.3)",
+              background: "rgba(34, 197, 94, 0.15)",
+              border: "1px solid rgba(74, 222, 128, 0.35)",
               color: "#4ade80",
             }}
           >
-            🥑
+            <svg
+              className="w-4 h-4 text-emerald-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
           </div>
           <div className="flex flex-col">
             <span
-              className="text-sm sm:text-base font-bold tracking-tight leading-tight"
+              className="text-sm font-bold tracking-tight leading-none"
               style={{ color: "var(--text-primary)" }}
             >
               Mages Farms
             </span>
             <span
-              className="text-[10px] font-medium tracking-wide uppercase hidden xs:inline"
+              className="text-[10px] font-semibold tracking-wider uppercase mt-0.5"
               style={{ color: "var(--text-tertiary)" }}
             >
-              Kodai Farm Tracker
+              Farm Management
             </span>
           </div>
         </Link>
 
-        {/* Nav Links */}
-        <nav className="flex items-center gap-1 sm:gap-2">
+        {/* Desktop Navigation Links */}
+        <nav className="hidden md:flex items-center gap-1.5">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all ${
                   isActive
                     ? "shadow-sm"
-                    : "hover:bg-white/5 opacity-80 hover:opacity-100"
+                    : "hover:bg-white/5 opacity-75 hover:opacity-100"
                 }`}
                 style={
                   isActive
@@ -139,13 +151,95 @@ export default function Navbar() {
                 }
               >
                 {item.icon}
-                <span className="hidden sm:inline">{item.label}</span>
-                <span className="sm:hidden">{item.shortLabel}</span>
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
+
+        {/* Mobile Hamburger Button */}
+        <div className="flex items-center md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center"
+            style={{
+              background: mobileMenuOpen
+                ? "rgba(34, 197, 94, 0.15)"
+                : "rgba(255, 255, 255, 0.04)",
+              borderColor: mobileMenuOpen
+                ? "rgba(74, 222, 128, 0.4)"
+                : "var(--border-primary)",
+              color: mobileMenuOpen ? "#4ade80" : "var(--text-secondary)",
+            }}
+            aria-label="Toggle navigation menu"
+          >
+            {mobileMenuOpen ? (
+              <svg
+                className="w-5 h-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg
+                className="w-5 h-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* Mobile Dropdown Menu Drawer */}
+      {mobileMenuOpen && (
+        <div
+          className="md:hidden border-b px-4 py-3 space-y-1.5 transition-all shadow-2xl"
+          style={{
+            background: "rgba(14, 17, 23, 0.98)",
+            borderColor: "var(--border-secondary)",
+          }}
+        >
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+                  isActive
+                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                    : "text-zinc-300 hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                <span className={isActive ? "text-emerald-400" : "text-zinc-400"}>
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+                {isActive && (
+                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </header>
   );
 }

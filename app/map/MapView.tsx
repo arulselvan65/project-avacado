@@ -151,19 +151,27 @@ interface UserLocation {
   accuracy?: number;
 }
 
-// ─── Geolocation Tracker & Auto-Zoom Component ───────────────────────────────
+// ─── User Location Tracker (Triggered on-demand to avoid annoying auto-popups) ──
+
+interface UserLocationTrackerProps {
+  isActive: boolean;
+  onLocationUpdate: (loc: UserLocation) => void;
+  onAutoCenterComplete?: () => void;
+}
 
 function UserLocationTracker({
+  isActive,
   onLocationUpdate,
-}: {
-  onLocationUpdate: (loc: UserLocation) => void;
-}) {
+  onAutoCenterComplete,
+}: UserLocationTrackerProps) {
   const map = useMap();
   const hasCenteredRef = useRef(false);
   const bestAccuracyRef = useRef(Infinity);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !navigator.geolocation) return;
+    if (!isActive || typeof window === "undefined" || !navigator.geolocation) {
+      return;
+    }
 
     const applyLocation = (pos: GeolocationPosition, shouldCenter: boolean) => {
       const loc: UserLocation = {
@@ -173,35 +181,37 @@ function UserLocationTracker({
       };
       const acc = pos.coords.accuracy ?? Infinity;
 
-      // Only update if this reading is more accurate, or if it's the first one, or if it's within a reasonable accuracy threshold.
-      // This prevents the map from jumping from a good GPS fix (e.g. 15m) to a bad IP-based fix (e.g. 5000m).
-      if (acc < bestAccuracyRef.current || bestAccuracyRef.current === Infinity || acc < 100) {
+      if (
+        acc < bestAccuracyRef.current ||
+        bestAccuracyRef.current === Infinity ||
+        acc < 100
+      ) {
         bestAccuracyRef.current = Math.min(acc, bestAccuracyRef.current);
         onLocationUpdate(loc);
 
-        // Center map on first accurate fix
         if (shouldCenter && !hasCenteredRef.current && acc < 1000) {
           hasCenteredRef.current = true;
-          map.flyTo([loc.lat, loc.lng], 19, { duration: 1.2 });
+          map.flyTo([loc.lat, loc.lng], 19, { duration: 1.0 });
+          onAutoCenterComplete?.();
         }
       }
     };
 
-    // Phase 1: Get initial position (maximumAge: 0 = always fresh, no cache)
+    // Phase 1: Get initial position
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         applyLocation(pos, true);
       },
       (err) => {
-        console.warn("Could not get initial user location:", err.message);
+        console.warn("Could not get user location:", err.message);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
 
-    // Phase 2: Continuously watch position (maximumAge: 0 = always precise)
+    // Phase 2: Watch position
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        applyLocation(pos, true);
+        applyLocation(pos, false);
       },
       (err) => {
         console.warn("Geolocation watch error:", err.message);
@@ -212,35 +222,49 @@ function UserLocationTracker({
     return () => {
       navigator.geolocation.clearWatch(watchId);
     };
-  }, [map, onLocationUpdate]);
+  }, [isActive, map, onLocationUpdate, onAutoCenterComplete]);
 
   return null;
 }
 
-// ─── Re-center Floating Action Button ────────────────────────────────────────
+// ─── Locate / Re-center Floating Action Button ──────────────────────────────
 
-function RecenterToUserButton({ userLocation }: { userLocation: UserLocation | null }) {
+function LocateButton({
+  isLocating,
+  userLocation,
+  onActivate,
+}: {
+  isLocating: boolean;
+  userLocation: UserLocation | null;
+  onActivate: () => void;
+}) {
   const map = useMap();
 
-  if (!userLocation) return null;
+  const handleClick = () => {
+    if (!isLocating) {
+      onActivate();
+    } else if (userLocation) {
+      map.flyTo([userLocation.lat, userLocation.lng], 19, { duration: 0.8 });
+    }
+  };
 
   return (
     <button
       type="button"
-      onClick={() => {
-        map.flyTo([userLocation.lat, userLocation.lng], 19, { duration: 0.8 });
-      }}
-      title="Re-center to my location"
-      className="fixed bottom-24 right-4 z-[1000] w-11 h-11 rounded-xl shadow-xl backdrop-blur-md flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+      onClick={handleClick}
+      title={isLocating ? "Re-center to my location" : "Locate my position"}
+      className="fixed bottom-24 right-4 z-[1000] px-3.5 py-2.5 rounded-xl shadow-xl backdrop-blur-md flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
       style={{
-        background: "rgba(17, 20, 27, 0.88)",
+        background: isLocating
+          ? "rgba(45, 157, 94, 0.9)"
+          : "rgba(17, 20, 27, 0.88)",
         border: "1px solid var(--border-secondary)",
-        color: "var(--text-primary)",
+        color: "#ffffff",
       }}
-      aria-label="Re-center to my location"
+      aria-label="Locate position"
     >
       <svg
-        className="w-5 h-5 text-emerald-400"
+        className={`w-4 h-4 ${isLocating ? "text-white animate-pulse" : "text-emerald-400"}`}
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -254,6 +278,9 @@ function RecenterToUserButton({ userLocation }: { userLocation: UserLocation | n
         <line x1="1" y1="12" x2="5" y2="12" />
         <line x1="19" y1="12" x2="23" y2="12" />
       </svg>
+      <span className="text-xs font-semibold">
+        {isLocating ? "My Location" : "Locate Me"}
+      </span>
     </button>
   );
 }
@@ -649,6 +676,7 @@ export default function MapView({ trees }: MapViewProps) {
   const [activeStyle, setActiveStyle] = useState<MapStyle>("google_hybrid");
   const [selectedTreeId, setSelectedTreeId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
 
   // Fullscreen lightbox state
   const [lightbox, setLightbox] = useState<{
@@ -716,14 +744,21 @@ export default function MapView({ trees }: MapViewProps) {
           maxNativeZoom={currentProvider.maxNativeZoom}
         />
 
-        {/* User Location Tracker: Auto-detects GPS and zooms to live position */}
-        <UserLocationTracker onLocationUpdate={handleLocationUpdate} />
+        {/* User Location Tracker: Only activates on user tap */}
+        <UserLocationTracker
+          isActive={isLocating}
+          onLocationUpdate={handleLocationUpdate}
+        />
 
         {/* Fallback bounds if user location is unavailable */}
         <FitBounds trees={trees} hasUserLocation={userLocation !== null} />
 
-        {/* Floating Re-center to my location button */}
-        <RecenterToUserButton userLocation={userLocation} />
+        {/* Floating Locate / Re-center Button */}
+        <LocateButton
+          isLocating={isLocating}
+          userLocation={userLocation}
+          onActivate={() => setIsLocating(true)}
+        />
 
         {/* User live location marker (Google Maps style pulsing blue beacon) */}
         {userLocation && (
