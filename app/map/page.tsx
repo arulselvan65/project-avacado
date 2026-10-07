@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import type { TreeRecord } from "@/lib/types";
+import Navbar from "../components/Navbar";
 
 /**
  * Dynamic import of the MapView component with SSR disabled.
@@ -15,7 +16,7 @@ const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
   loading: () => (
     <div
-      className="w-full h-screen flex items-center justify-center"
+      className="w-full h-full flex items-center justify-center"
       style={{ background: "var(--bg-primary)" }}
     >
       <div className="text-center space-y-3">
@@ -73,12 +74,13 @@ export default function MapPage() {
   }, []);
 
   return (
-    <div className="relative w-full h-screen overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-      {/* 
-        The map loads first itself without waiting for database queries to complete.
-        Markers render smoothly as soon as the data is fetched.
-      */}
-      <MapView trees={trees} />
+    <div className="relative w-full h-screen flex flex-col overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+      {/* Universal Navbar */}
+      <Navbar />
+
+      {/* Map View Container */}
+      <div className="relative flex-1 w-full h-full overflow-hidden">
+        <MapView trees={trees} />
 
       {/* Floating Status Pill when fetching markers in background */}
       {loading && (
@@ -140,31 +142,6 @@ export default function MapPage() {
         </div>
       )}
 
-      {/* Floating nav button — Register New */}
-      <Link
-        href="/register"
-        className="fixed top-4 right-4 z-[1000] inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider shadow-lg backdrop-blur-md transition-all hover:scale-105 active:scale-95"
-        style={{
-          background: "var(--accent)",
-          color: "#ffffff",
-          border: "1px solid rgba(255,255,255,0.18)",
-          boxShadow: "0 6px 20px -2px rgba(22, 163, 74, 0.35)",
-        }}
-      >
-        <svg
-          className="w-3.5 h-3.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-        <span>Register New</span>
-      </Link>
-
       {/* Floating map legend */}
       <div
         className="fixed bottom-6 left-4 z-[1000] px-3.5 py-3 rounded-xl text-xs space-y-2 backdrop-blur-md shadow-xl"
@@ -211,6 +188,7 @@ export default function MapPage() {
           />
           <span className="text-xs" style={{ color: "var(--text-primary)" }}>You (GPS)</span>
         </div>
+      </div>
       </div>
     </div>
   );

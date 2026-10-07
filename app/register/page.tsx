@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import CameraCaptureModal from "./CameraCaptureModal";
+import Navbar from "../components/Navbar";
 
 // ─── Dynamic Import for Leaflet Map Component (SSR disabled) ─────────────────
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
@@ -235,6 +236,10 @@ export default function RegisterPage() {
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   const [geoError, setGeoError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<
+    "idle" | "uploading" | "saving" | "success" | "error"
+  >("idle");
+  const [submitErrorMsg, setSubmitErrorMsg] = useState("");
   const [submitResult, setSubmitResult] = useState<{
     ok: boolean;
     msg: string;
@@ -492,6 +497,8 @@ export default function RegisterPage() {
     if (!validate()) return;
 
     setSubmitting(true);
+    setSubmitPhase("uploading");
+    setSubmitErrorMsg("");
 
     try {
       // 1. Upload all variety images if provided
@@ -509,6 +516,7 @@ export default function RegisterPage() {
       }
 
       // 3. Insert record into Supabase
+      setSubmitPhase("saving");
       const { error: insertError } = await supabase.from("trees").insert({
         tree_id: form.tree_id.trim(),
         type: form.type,
@@ -530,6 +538,7 @@ export default function RegisterPage() {
       }
 
       // Success — reset form
+      setSubmitPhase("success");
       setSubmitResult({
         ok: true,
         msg: "Tree/plant registered successfully!",
@@ -539,9 +548,12 @@ export default function RegisterPage() {
       setPhotoFiles([]);
       setPhotoPreviews([]);
     } catch (err) {
+      setSubmitPhase("error");
+      const msg = err instanceof Error ? err.message : "An unknown error occurred.";
+      setSubmitErrorMsg(msg);
       setSubmitResult({
         ok: false,
-        msg: err instanceof Error ? err.message : "An unknown error occurred.",
+        msg,
       });
     } finally {
       setSubmitting(false);
@@ -556,37 +568,8 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
-      {/* ── Header ── */}
-      <header
-        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between border-b"
-        style={{
-          background: "rgba(10, 12, 16, 0.92)",
-          backdropFilter: "blur(12px) saturate(1.2)",
-          WebkitBackdropFilter: "blur(12px) saturate(1.2)",
-          borderColor: "var(--border-primary)",
-        }}
-      >
-        <div>
-          <h1 className="text-base font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-            Mages Farms
-          </h1>
-          <p className="text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
-            Tree Registry
-          </p>
-        </div>
-        <Link
-          href="/map"
-          className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-all"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border-secondary)",
-          }}
-        >
-          <IconMap size={14} />
-          View Map
-        </Link>
-      </header>
+      {/* ── Universal Navbar ── */}
+      <Navbar />
 
       {/* ── Form ── */}
       <main className="flex-1 px-4 py-6 max-w-lg mx-auto w-full">
@@ -1058,6 +1041,165 @@ export default function RegisterPage() {
             : "Tree / Plant Photo"
         }
       />
+
+      {/* ── Submit Overlay Dialog ── */}
+      {submitPhase !== "idle" && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center px-6"
+          style={{
+            background: "rgba(0, 0, 0, 0.6)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-8 text-center space-y-5 shadow-2xl"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-secondary)",
+            }}
+          >
+            {/* Uploading / Saving states */}
+            {(submitPhase === "uploading" || submitPhase === "saving") && (
+              <>
+                <div className="flex items-center justify-center">
+                  <div
+                    className="w-12 h-12 border-3 border-t-transparent rounded-full animate-spin"
+                    style={{
+                      borderColor: "var(--accent)",
+                      borderTopColor: "transparent",
+                      borderWidth: "3px",
+                    }}
+                  />
+                </div>
+                <div>
+                  <p
+                    className="text-base font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {submitPhase === "uploading"
+                      ? "Uploading photos…"
+                      : "Saving record…"}
+                  </p>
+                  <p
+                    className="text-xs mt-1"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    {submitPhase === "uploading"
+                      ? "Please wait while your photos are being uploaded."
+                      : "Almost done. Writing to the database."}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Success state */}
+            {submitPhase === "success" && (
+              <>
+                <div className="flex items-center justify-center">
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center"
+                    style={{
+                      background: "rgba(34, 197, 94, 0.15)",
+                      border: "2px solid rgba(34, 197, 94, 0.4)",
+                    }}
+                  >
+                    <svg
+                      className="w-7 h-7"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#22c55e"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                </div>
+                <div>
+                  <p
+                    className="text-base font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    Registered Successfully
+                  </p>
+                  <p
+                    className="text-xs mt-1"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    The tree/plant has been added to the database.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmitPhase("idle")}
+                  className="w-full py-3 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+                  style={{
+                    background: "var(--accent)",
+                    color: "#ffffff",
+                  }}
+                >
+                  Continue
+                </button>
+              </>
+            )}
+
+            {/* Error state */}
+            {submitPhase === "error" && (
+              <>
+                <div className="flex items-center justify-center">
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center"
+                    style={{
+                      background: "rgba(239, 68, 68, 0.15)",
+                      border: "2px solid rgba(239, 68, 68, 0.4)",
+                    }}
+                  >
+                    <svg
+                      className="w-7 h-7"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#ef4444"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </div>
+                </div>
+                <div>
+                  <p
+                    className="text-base font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    Registration Failed
+                  </p>
+                  <p
+                    className="text-xs mt-1 break-words"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    {submitErrorMsg || "An unknown error occurred."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmitPhase("idle")}
+                  className="w-full py-3 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+                  style={{
+                    background: "var(--danger)",
+                    color: "#ffffff",
+                  }}
+                >
+                  Try Again
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
