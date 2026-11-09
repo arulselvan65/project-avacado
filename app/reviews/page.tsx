@@ -28,6 +28,7 @@ export default function ReviewsHistoryPage() {
 
   // Delete modal
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Load reviews list
   const loadReviews = useCallback(async () => {
@@ -68,6 +69,21 @@ export default function ReviewsHistoryPage() {
     setCreating(true);
     setCreateError("");
 
+    const dateStr = new Date().toISOString().split("T")[0];
+    const locLabel = newFarmLocation && newFarmLocation !== "All" ? newFarmLocation : "All Farms";
+    const titleToCheck = newTitle.trim() || `Field Review – ${locLabel} (${dateStr})`;
+
+    if (newTitle.trim()) {
+      const isDuplicate = reviews.some(
+        (r) => r.title.toLowerCase().trim() === titleToCheck.toLowerCase().trim()
+      );
+      if (isDuplicate) {
+        setCreateError(`A review named "${titleToCheck}" already exists. Please enter a unique review title.`);
+        setCreating(false);
+        return;
+      }
+    }
+
     try {
       const newReview = await createNewReviewFromDatabase({
         title: newTitle.trim() || undefined,
@@ -75,6 +91,7 @@ export default function ReviewsHistoryPage() {
       });
 
       setShowNewModal(false);
+      setNewTitle("");
       router.push(`/reviews/${newReview.id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create review";
@@ -86,12 +103,15 @@ export default function ReviewsHistoryPage() {
   // Handle Delete Review
   const handleDeleteConfirm = async () => {
     if (!deletingId) return;
+    setIsDeleting(true);
     try {
       await deleteReviewRecord(deletingId);
       setReviews((prev) => prev.filter((r) => r.id !== deletingId));
       setDeletingId(null);
     } catch (err: unknown) {
       alert("Failed to delete review: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -612,16 +632,21 @@ export default function ReviewsHistoryPage() {
               <button
                 type="button"
                 onClick={() => setDeletingId(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 text-zinc-300"
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 text-zinc-300 hover:bg-white/5 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeleteConfirm}
-                className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-600 hover:bg-red-500 text-white"
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-600 hover:bg-red-500 text-white flex items-center gap-2 active:scale-95 disabled:opacity-50"
               >
-                Delete
+                {isDeleting && (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                <span>{isDeleting ? "Deleting…" : "Delete"}</span>
               </button>
             </div>
           </div>

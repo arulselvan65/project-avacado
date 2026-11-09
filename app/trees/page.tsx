@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import Navbar from "../components/Navbar";
 import TreeEditModal from "./TreeEditModal";
 import { supabase } from "@/lib/supabase";
 import type { TreeRecord } from "@/lib/types";
 import { getVarietyImageUrls } from "@/lib/types";
+
+// Dynamic import of navigation modal to disable SSR (Leaflet requires browser window/document)
+const NavigateToTreeModal = dynamic(
+  () => import("./NavigateToTreeModal"),
+  { ssr: false }
+);
 
 export default function TreesListPage() {
   const [trees, setTrees] = useState<TreeRecord[]>([]);
@@ -19,6 +26,9 @@ export default function TreesListPage() {
   const [typeFilter, setTypeFilter] = useState<"ALL" | "tree" | "plant" | "regrown" | "dead">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "fruiting" | "affected" | "pruned">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "id_asc" | "id_desc">("newest");
+
+  // Navigation Modal state
+  const [navigatingTree, setNavigatingTree] = useState<TreeRecord | null>(null);
 
   // Edit Modal state
   const [editingTree, setEditingTree] = useState<TreeRecord | null>(null);
@@ -663,32 +673,21 @@ export default function TreesListPage() {
                         )}
                       </div>
 
-                      {/* Middle: Photos gallery */}
-                      {allPhotos.length > 0 && (
-                        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto py-0.5">
-                          {allPhotos.slice(0, 3).map((url, imgIdx) => (
-                            <button
-                              key={imgIdx}
-                              onClick={() => openLightbox(allPhotos, imgIdx)}
-                              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl border border-zinc-700/60 overflow-hidden hover:scale-105 active:scale-95 transition-transform"
-                              title="View photo"
-                            >
-                              <img src={url} alt={`Photo ${imgIdx}`} className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                          {allPhotos.length > 3 && (
-                            <button
-                              onClick={() => openLightbox(allPhotos, 3)}
-                              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl border border-zinc-700/60 bg-zinc-900 flex items-center justify-center text-xs font-bold text-zinc-400 hover:text-white"
-                            >
-                              +{allPhotos.length - 3}
-                            </button>
-                          )}
-                        </div>
-                      )}
-
                       {/* Right: Actions */}
-                      <div className="flex items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-zinc-800">
+                      <div className="flex items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-zinc-800 flex-wrap">
+                        {/* Navigate to Tree */}
+                        <button
+                          type="button"
+                          onClick={() => setNavigatingTree(tree)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500 hover:text-white active:scale-95 transition-all flex items-center gap-1.5 shadow-sm"
+                          title="Navigate to this tree on live map"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                          </svg>
+                          <span>Navigate</span>
+                        </button>
+
                         {/* Edit Button */}
                         <button
                           onClick={() => setEditingTree(tree)}
@@ -726,6 +725,46 @@ export default function TreesListPage() {
                           </svg>
                         </button>
                       </div>
+                    </div>
+
+                    {/* Multiple Photos Gallery at bottom across all sides, not centered */}
+                    {allPhotos.length > 0 && (
+                      <div className="-mx-3.5 sm:-mx-4 -mb-3.5 sm:-mb-4 mt-3 border-t border-zinc-800/80 bg-black/25 rounded-b-2xl overflow-hidden p-2.5 sm:p-3">
+                        <div className="flex items-center justify-between mb-2 px-0.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                            <svg className="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                              <circle cx="8.5" cy="8.5" r="1.5" />
+                              <polyline points="21 15 16 10 5 21" />
+                            </svg>
+                            <span>Photos ({allPhotos.length})</span>
+                          </span>
+                          <span className="text-[10px] text-zinc-500">Tap photo to enlarge</span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                          {allPhotos.map((url, imgIdx) => (
+                            <button
+                              key={imgIdx}
+                              type="button"
+                              onClick={() => openLightbox(allPhotos, imgIdx)}
+                              className="group relative aspect-[4/3] rounded-xl overflow-hidden border border-zinc-700/60 hover:border-emerald-400 bg-zinc-900 transition-all hover:scale-[1.02] active:scale-95 text-left"
+                              title={`View photo ${imgIdx + 1}`}
+                            >
+                              <img
+                                src={url}
+                                alt={`${tree.tree_id} photo ${imgIdx + 1}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                loading="lazy"
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                              <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-black/80 text-white/90 backdrop-blur-xs">
+                                #{imgIdx + 1}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     </div>
                   </div>
                 );
@@ -878,6 +917,13 @@ export default function TreesListPage() {
           )}
         </div>
       )}
+
+      {/* Navigate to Tree Live Map Modal */}
+      <NavigateToTreeModal
+        isOpen={navigatingTree !== null}
+        tree={navigatingTree}
+        onClose={() => setNavigatingTree(null)}
+      />
     </div>
   );
 }

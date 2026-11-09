@@ -271,6 +271,25 @@ function FitBounds({
   return null;
 }
 
+// ─── Center on Selected Tree ───────────────────────────────────────────────
+
+function SelectedTreeController({
+  selectedItem,
+}: {
+  selectedItem?: TreeReviewItem | null;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (selectedItem && selectedItem.latitude && selectedItem.longitude) {
+      map.panTo([selectedItem.latitude, selectedItem.longitude], {
+        animate: true,
+        duration: 0.6,
+      });
+    }
+  }, [selectedItem, map]);
+  return null;
+}
+
 // ─── Main ReviewMapView Component ──────────────────────────────────────────
 
 interface ReviewMapViewProps {
@@ -291,6 +310,10 @@ export default function ReviewMapView({
   const handleLocationUpdate = useCallback((loc: UserLocation) => {
     setUserLocation(loc);
   }, []);
+
+  const selectedItem = useMemo(() => {
+    return items.find((i) => i.tree_id === selectedTreeId) || null;
+  }, [items, selectedTreeId]);
 
   const currentProvider = TILE_PROVIDERS[activeStyle];
 
@@ -363,6 +386,7 @@ export default function ReviewMapView({
         />
 
         <FitBounds items={items} hasUserLoc={userLocation !== null} />
+        <SelectedTreeController selectedItem={selectedItem} />
 
         <LocateButton
           isLocating={isLocating}

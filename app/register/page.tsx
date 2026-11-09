@@ -110,7 +110,8 @@ async function uploadFile(
 }
 
 /**
- * Generates the next tree_id based on farm_location.
+ * Generates the next strictly unique tree_id based on farm_location.
+ * Scans all existing IDs to find the lowest unused sequence number.
  * Attuvampatti → A-001, A-002, ...
  * Gundupatti   → G-001, G-002, ...
  */
@@ -118,17 +119,35 @@ async function generateTreeId(farmLocation: string): Promise<string> {
   const prefix = farmLocation === "Gundupatti" ? "G" : "A";
   const pattern = `${prefix}-%`;
 
-  // Count existing trees with this prefix
-  const { count, error } = await supabase
+  // Fetch all existing tree IDs with this prefix to prevent duplicates
+  const { data, error } = await supabase
     .from("trees")
-    .select("*", { count: "exact", head: true })
+    .select("tree_id")
     .like("tree_id", pattern);
 
   if (error) {
-    console.error("Failed to count trees for ID generation:", error);
+    console.error("Failed to query tree IDs for generation:", error);
   }
 
-  const nextNum = (count ?? 0) + 1;
+  const existingNumbers = new Set<number>();
+  if (data && Array.isArray(data)) {
+    for (const row of data) {
+      if (typeof row.tree_id === "string") {
+        const match = row.tree_id.match(/^[AG]-0*(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > 0) existingNumbers.add(num);
+        }
+      }
+    }
+  }
+
+  // Find lowest available positive number
+  let nextNum = 1;
+  while (existingNumbers.has(nextNum)) {
+    nextNum++;
+  }
+
   const padded = nextNum.toString().padStart(3, "0");
   return `${prefix}-${padded}`;
 }
@@ -558,16 +577,40 @@ export default function RegisterPage() {
     const errs: FormErrors = {};
     if (!form.farm_location) errs.farm_location = "Farm location is required.";
     if (!form.type) errs.type = "Type is required.";
-    if (!form.latitude.trim()) {
+
+    const latVal = form.latitude.trim();
+    const lngVal = form.longitude.trim();
+
+    if (!latVal) {
       errs.latitude = "Latitude is required.";
-    } else if (isNaN(Number(form.latitude))) {
+    } else if (isNaN(Number(latVal))) {
       errs.latitude = "Latitude must be a number.";
     }
-    if (!form.longitude.trim()) {
+
+    if (!lngVal) {
       errs.longitude = "Longitude is required.";
-    } else if (isNaN(Number(form.longitude))) {
+    } else if (isNaN(Number(lngVal))) {
       errs.longitude = "Longitude must be a number.";
     }
+
+    // Strict GPS Duplicate Check: No two trees may share the exact same location
+    if (latVal && lngVal && !isNaN(Number(latVal)) && !isNaN(Number(lngVal))) {
+      const latNum = parseFloat(latVal);
+      const lngNum = parseFloat(lngVal);
+
+      const duplicateTree = existingTrees.find((t) => {
+        const dLat = Math.abs(t.latitude - latNum);
+        const dLng = Math.abs(t.longitude - lngNum);
+        // within ~1.5 meters is considered duplicate point
+        return dLat < 0.000015 && dLng < 0.000015;
+      });
+
+      if (duplicateTree) {
+        errs.latitude = `Location already assigned to ${duplicateTree.tree_id}.`;
+        errs.longitude = `Each tree must have a unique coordinate location.`;
+      }
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -601,8 +644,19 @@ export default function RegisterPage() {
         image_urls.push(url);
       }
 
-      // 3. Re-generate tree_id to avoid race conditions
+      // 3. Re-generate tree_id to avoid race conditions and strictly guarantee uniqueness
       const finalTreeId = await generateTreeId(form.farm_location);
+
+      // Verify no duplicate tree ID exists
+      const { data: duplicateIdCheck } = await supabase
+        .from("trees")
+        .select("id")
+        .eq("tree_id", finalTreeId)
+        .maybeSingle();
+
+      if (duplicateIdCheck) {
+        throw new Error(`Tree ID "${finalTreeId}" is already assigned. Please retry to assign the next available number.`);
+      }
 
       // 4. Insert record into Supabase
       setSubmitPhase("saving");

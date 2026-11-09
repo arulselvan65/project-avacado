@@ -239,6 +239,41 @@ export default function TreeEditModal({
     setErrorMsg("");
 
     try {
+      // Uniqueness check 1: Tree ID must be unique
+      const trimmedTreeId = treeId.trim();
+      if (!trimmedTreeId) {
+        throw new Error("Tree ID cannot be empty.");
+      }
+
+      const { data: dupId } = await supabase
+        .from("trees")
+        .select("id, tree_id")
+        .eq("tree_id", trimmedTreeId)
+        .neq("id", tree.id)
+        .maybeSingle();
+
+      if (dupId) {
+        throw new Error(`Tree ID "${trimmedTreeId}" is already used by another record. Please use a unique Tree ID.`);
+      }
+
+      // Uniqueness check 2: Location (GPS) must be unique
+      const { data: existingLocations } = await supabase
+        .from("trees")
+        .select("id, tree_id, latitude, longitude")
+        .neq("id", tree.id);
+
+      if (existingLocations) {
+        const conflict = existingLocations.find((t) => {
+          const dLat = Math.abs(t.latitude - latNum);
+          const dLng = Math.abs(t.longitude - lngNum);
+          return dLat < 0.000015 && dLng < 0.000015;
+        });
+
+        if (conflict) {
+          throw new Error(`Location conflict: This GPS spot is already assigned to Tree ${conflict.tree_id}. Each tree must have its own location.`);
+        }
+      }
+
       // Determine if variety and status sections are relevant for this type
       const showVariety = type !== "plant" && type !== "regrown" && type !== "dead";
       const showStatus = type !== "dead";
@@ -854,10 +889,10 @@ export default function TreeEditModal({
                 {savePhase === "uploading"
                   ? "Uploading Media…"
                   : savePhase === "saving"
-                  ? "Saving Changes…"
+                  ? "Saving & Updating Map…"
                   : savePhase === "done"
-                  ? "Saved!"
-                  : "Save Changes"}
+                  ? "Saved & Map Updated!"
+                  : "Save & Update Map"}
               </span>
             </button>
           </div>

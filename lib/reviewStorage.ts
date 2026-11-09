@@ -8,8 +8,10 @@ import type {
 
 const LOCAL_STORAGE_KEY_INDEX = "mages_farm_reviews_index";
 const LOCAL_STORAGE_PREFIX = "mages_farm_review_";
+const LOCAL_STORAGE_DELETED_KEY = "mages_farm_deleted_reviews_tombstones";
 const STORAGE_BUCKET = "tree-images";
 const STORAGE_PREFIX = "reviews_data/records";
+const STORAGE_TOMBSTONES_PREFIX = "reviews_data/tombstones";
 
 /**
  * Calculates summary metrics for a list of review items.
@@ -57,11 +59,60 @@ export async function uploadAffectedPointPhoto(
 }
 
 /**
+ * Loads deleted review IDs set from local storage and cloud tombstones.
+ */
+async function getDeletedReviewIds(): Promise<Set<string>> {
+  const deletedSet = new Set<string>();
+
+  // 1. From localStorage
+  if (typeof window !== "undefined") {
+    try {
+      const local = localStorage.getItem(LOCAL_STORAGE_DELETED_KEY);
+      if (local) {
+        const arr = JSON.parse(local) as string[];
+        if (Array.isArray(arr)) {
+          arr.forEach((id) => deletedSet.add(id));
+        }
+      }
+    } catch {}
+  }
+
+  // 2. From Supabase storage tombstones directory
+  try {
+    const { data: files } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list(STORAGE_TOMBSTONES_PREFIX, { limit: 200 });
+
+    if (Array.isArray(files) && files.length > 0) {
+      files.forEach((f) => {
+        if (f.name.endsWith(".json")) {
+          const revId = f.name.replace(/\.json$/, "");
+          deletedSet.add(revId);
+        }
+      });
+
+      // Sync back to local storage
+      if (typeof window !== "undefined") {
+        localStorage.setItem(
+          LOCAL_STORAGE_DELETED_KEY,
+          JSON.stringify(Array.from(deletedSet))
+        );
+      }
+    }
+  } catch (err) {
+    console.warn("Could not list tombstones from Supabase:", err);
+  }
+
+  return deletedSet;
+}
+
+/**
  * Fetches all review metadata entries (history list).
- * Merges local storage and cloud records.
+ * Merges local storage and cloud records, strictly filtering out deleted reviews.
  */
 export async function getAllReviews(): Promise<ReviewMetadata[]> {
   const reviewsMap = new Map<string, ReviewMetadata>();
+  const deletedSet = await getDeletedReviewIds();
 
   // 1. Load from localStorage first (instant response)
   if (typeof window !== "undefined") {
@@ -70,7 +121,11 @@ export async function getAllReviews(): Promise<ReviewMetadata[]> {
       if (local) {
         const list = JSON.parse(local) as ReviewMetadata[];
         if (Array.isArray(list)) {
-          list.forEach((r) => reviewsMap.set(r.id, r));
+          list.forEach((r) => {
+            if (!deletedSet.has(r.id)) {
+              reviewsMap.set(r.id, r);
+            }
+          });
         }
       }
     } catch (e) {
@@ -94,8 +149,11 @@ export async function getAllReviews(): Promise<ReviewMetadata[]> {
         const lastUnderscore = file.name.lastIndexOf("_");
         if (lastUnderscore === -1) continue;
         const reviewId = file.name.substring(0, lastUnderscore);
-        const currentLatest = latestFilePerReview.get(reviewId);
 
+        // Skip deleted reviews
+        if (deletedSet.has(reviewId)) continue;
+
+        const currentLatest = latestFilePerReview.get(reviewId);
         if (!currentLatest || file.name > currentLatest) {
           latestFilePerReview.set(reviewId, file.name);
         }
@@ -137,12 +195,17 @@ export async function getAllReviews(): Promise<ReviewMetadata[]> {
     console.warn("Could not list reviews from Supabase storage:", err);
   }
 
+  // Clean out any tombstones from reviewsMap
+  for (const delId of deletedSet) {
+    reviewsMap.delete(delId);
+  }
+
   const result = Array.from(reviewsMap.values()).sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
   // Update local index cache
-  if (typeof window !== "undefined" && result.length > 0) {
+  if (typeof window !== "undefined") {
     localStorage.setItem(LOCAL_STORAGE_KEY_INDEX, JSON.stringify(result));
   }
 
@@ -153,6 +216,16 @@ export async function getAllReviews(): Promise<ReviewMetadata[]> {
  * Fetches an individual review with all items by ID.
  */
 export async function getReviewById(id: string): Promise<TreeReviewRecord | null> {
+  // Check if tombstoned locally
+  if (typeof window !== "undefined") {
+    try {
+      const local = localStorage.getItem(LOCAL_STORAGE_DELETED_KEY);
+      if (local && (JSON.parse(local) as string[]).includes(id)) {
+        return null;
+      }
+    } catch {}
+  }
+
   let localReview: TreeReviewRecord | null = null;
 
   // 1. Check localStorage first
@@ -300,7 +373,28 @@ export async function createNewReviewFromDatabase(options: {
   const id = `REV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${timestamp.toString().slice(-4)}`;
 
   const locLabel = options.farm_location && options.farm_location !== "All" ? options.farm_location : "All Farms";
-  const title = options.title?.trim() || `Field Review – ${locLabel} (${dateStr})`;
+  const defaultTitle = `Field Review – ${locLabel} (${dateStr})`;
+
+  // Ensure review title is strictly unique across all reviews
+  const allExistingReviews = await getAllReviews();
+  let title = options.title?.trim() || defaultTitle;
+
+  if (options.title?.trim()) {
+    const exists = allExistingReviews.some(
+      (r) => r.title.toLowerCase().trim() === title.toLowerCase().trim()
+    );
+    if (exists) {
+      throw new Error(`A review named "${title}" already exists. Review names must be unique.`);
+    }
+  } else {
+    let counter = 1;
+    let testTitle = defaultTitle;
+    while (allExistingReviews.some((r) => r.title.toLowerCase().trim() === testTitle.toLowerCase().trim())) {
+      counter++;
+      testTitle = `${defaultTitle} (#${counter})`;
+    }
+    title = testTitle;
+  }
 
   // 3. Map tree records into review items with status: null
   const items: TreeReviewItem[] = trees.map((t) => {
@@ -362,17 +456,65 @@ export async function createNewReviewFromDatabase(options: {
 }
 
 /**
- * Deletes a review from storage.
+ * Deletes a review from storage permanently.
+ * Removes from local storage, marks with a cloud tombstone, and attempts best-effort storage cleanup.
  */
 export async function deleteReviewRecord(id: string): Promise<void> {
+  // 1. Immediately delete from local storage and record tombstone
   if (typeof window !== "undefined") {
-    localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${id}`);
-    const localIndexStr = localStorage.getItem(LOCAL_STORAGE_KEY_INDEX);
-    if (localIndexStr) {
-      try {
+    try {
+      localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${id}`);
+      
+      const localIndexStr = localStorage.getItem(LOCAL_STORAGE_KEY_INDEX);
+      if (localIndexStr) {
         const list = (JSON.parse(localIndexStr) as ReviewMetadata[]).filter((r) => r.id !== id);
         localStorage.setItem(LOCAL_STORAGE_KEY_INDEX, JSON.stringify(list));
-      } catch {}
+      }
+
+      const deletedStr = localStorage.getItem(LOCAL_STORAGE_DELETED_KEY);
+      const list: string[] = deletedStr ? JSON.parse(deletedStr) : [];
+      if (!list.includes(id)) {
+        list.push(id);
+      }
+      localStorage.setItem(LOCAL_STORAGE_DELETED_KEY, JSON.stringify(list));
+    } catch (e) {
+      console.warn("LocalStorage delete warning:", e);
     }
+  }
+
+  // 2. Upload cloud tombstone marker to Supabase storage
+  try {
+    const tombstonePayload = JSON.stringify({
+      id,
+      deleted_at: new Date().toISOString(),
+    });
+    const blob = new Blob([tombstonePayload], { type: "application/json" });
+    await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(`${STORAGE_TOMBSTONES_PREFIX}/${id}.json`, blob, {
+        contentType: "application/json",
+        upsert: false,
+      });
+  } catch (err) {
+    console.warn("Could not upload tombstone marker to Supabase:", err);
+  }
+
+  // 3. Best-effort remove from storage
+  try {
+    const { data: files } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list(STORAGE_PREFIX, { search: id });
+
+    if (Array.isArray(files) && files.length > 0) {
+      const pathsToDelete = files
+        .filter((f) => f.name.startsWith(`${id}_`))
+        .map((f) => `${STORAGE_PREFIX}/${f.name}`);
+
+      if (pathsToDelete.length > 0) {
+        await supabase.storage.from(STORAGE_BUCKET).remove(pathsToDelete);
+      }
+    }
+  } catch (err) {
+    console.warn("Best effort storage remove:", err);
   }
 }

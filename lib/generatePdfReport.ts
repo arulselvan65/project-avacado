@@ -1,114 +1,22 @@
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
-import type { TreeReviewRecord, TreeReviewItem } from "./reviewTypes";
+import type { TreeReviewRecord } from "./reviewTypes";
 
 /**
- * Converts lat/lng to OpenStreetMap tile coordinates.
+ * Image metadata interface for aspect-ratio preserved rendering.
  */
-function latLngToTile(lat: number, lng: number, zoom: number) {
-  const n = Math.pow(2, zoom);
-  const x = Math.floor(((lng + 180) / 360) * n);
-  const latRad = (lat * Math.PI) / 180;
-  const y = Math.floor(
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
-  );
-  return { x, y };
+interface ImageInfo {
+  dataUrl: string;
+  width: number;
+  height: number;
+  aspectRatio: number;
 }
 
 /**
- * Generates a mini map snapshot data URL with a red pin at (lat, lng).
+ * Loads an image from a URL into a high-resolution base64 data URL
+ * without distortion or blurring.
  */
-async function generateMapSnapshot(lat: number, lng: number): Promise<string | null> {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 400;
-    canvas.height = 300;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    // Background terrain color
-    ctx.fillStyle = "#1e293b";
-    ctx.fillRect(0, 0, 400, 300);
-
-    // Try to load a real tile from Esri or OpenStreetMap
-    const zoom = 17;
-    const { x, y } = latLngToTile(lat, lng, zoom);
-    const tileUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${y}/${x}`;
-
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject();
-        img.src = tileUrl;
-      });
-      ctx.drawImage(img, 0, 0, 400, 300);
-    } catch {
-      // If tile fetch fails (e.g. offline/CORS), draw a clean grid background
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(0, 0, 400, 300);
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 400; i += 25) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, 300);
-        ctx.stroke();
-      }
-      for (let j = 0; j < 300; j += 25) {
-        ctx.beginPath();
-        ctx.moveTo(0, j);
-        ctx.lineTo(400, j);
-        ctx.stroke();
-      }
-    }
-
-    // Draw Map Pin in center
-    const cx = 200;
-    const cy = 150;
-
-    // Pin Shadow
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 16, 12, 4, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.fill();
-
-    // Pin Needle & Head
-    ctx.beginPath();
-    ctx.arc(cx, cy - 8, 14, 0, Math.PI * 2);
-    ctx.fillStyle = "#ef4444";
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // Inner White Dot
-    ctx.beginPath();
-    ctx.arc(cx, cy - 8, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-
-    // Lat / Long coordinate label banner at bottom
-    ctx.fillStyle = "rgba(0,0,0,0.85)";
-    ctx.fillRect(0, 260, 400, 40);
-    ctx.fillStyle = "#f8fafc";
-    ctx.font = "bold 13px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`, 200, 285);
-
-    return canvas.toDataURL("image/jpeg", 0.9);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Loads an image from a URL into a base64 Data URL.
- */
-async function urlToDataUrl(url: string): Promise<string | null> {
+async function loadImageInfo(url: string): Promise<ImageInfo | null> {
   if (typeof window === "undefined" || !url) return null;
   try {
     const img = new Image();
@@ -119,16 +27,265 @@ async function urlToDataUrl(url: string): Promise<string | null> {
       img.src = url;
     });
 
+    const nw = img.naturalWidth || 800;
+    const nh = img.naturalHeight || 600;
+
+    // Preserve high resolution up to 1400px for crisp PDF printing
+    const maxDim = 1400;
+    let targetW = nw;
+    let targetH = nh;
+    if (targetW > maxDim || targetH > maxDim) {
+      if (targetW > targetH) {
+        targetH = Math.round((targetH * maxDim) / targetW);
+        targetW = maxDim;
+      } else {
+        targetW = Math.round((targetW * maxDim) / targetH);
+        targetH = maxDim;
+      }
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth || 600;
-    canvas.height = img.naturalHeight || 450;
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(img, 0, 0);
-    return canvas.toDataURL("image/jpeg", 0.85);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    return {
+      dataUrl: canvas.toDataURL("image/jpeg", 0.94),
+      width: nw,
+      height: nh,
+      aspectRatio: nw / nh,
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * Converts tile coordinates to tile image URL.
+ * Tries Google Hybrid, falls back to Esri Satellite.
+ */
+async function fetchTileImage(x: number, y: number, zoom: number): Promise<HTMLImageElement | null> {
+  const urls = [
+    `https://mt1.google.com/vt/lyrs=y&x=${x}&y=${y}&z=${zoom}`,
+    `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${y}/${x}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject();
+        img.src = url;
+      });
+      return img;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+/**
+ * Generates a high-precision, zoomed-in (zoom 19) satellite map snapshot
+ * where the tree coordinates are guaranteed to be in the exact center.
+ */
+async function generateZoomedMapSnapshot(lat: number, lng: number): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const canvas = document.createElement("canvas");
+    const canvasW = 600;
+    const canvasH = 450;
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // Zoom level 19: high-resolution orchard level (~70m across)
+    const zoom = 19;
+    const n = Math.pow(2, zoom);
+    const worldX = ((lng + 180) / 360) * n * 256;
+    const latRad = (lat * Math.PI) / 180;
+    const worldY = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n * 256;
+
+    const canvasMinX = worldX - canvasW / 2;
+    const canvasMinY = worldY - canvasH / 2;
+
+    const minTileX = Math.floor(canvasMinX / 256);
+    const maxTileX = Math.floor((canvasMinX + canvasW) / 256);
+    const minTileY = Math.floor(canvasMinY / 256);
+    const maxTileY = Math.floor((canvasMinY + canvasH) / 256);
+
+    // Fill background
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // Fetch and stitch tiles
+    const tilePromises: Promise<{ img: HTMLImageElement | null; dx: number; dy: number }>[] = [];
+    for (let tx = minTileX; tx <= maxTileX; tx++) {
+      for (let ty = minTileY; ty <= maxTileY; ty++) {
+        const dx = tx * 256 - canvasMinX;
+        const dy = ty * 256 - canvasMinY;
+        tilePromises.push(
+          fetchTileImage(tx, ty, zoom).then((img) => ({ img, dx, dy }))
+        );
+      }
+    }
+
+    const tiles = await Promise.all(tilePromises);
+    for (const t of tiles) {
+      if (t.img) {
+        ctx.drawImage(t.img, t.dx, t.dy, 256, 256);
+      }
+    }
+
+    // Coordinates in dead center
+    const cx = canvasW / 2;
+    const cy = canvasH / 2;
+
+    // Draw precision crosshairs and pin
+    // 1. Radar pulse ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, 28, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(239, 68, 68, 0.22)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
+    ctx.fill();
+
+    // 2. Crosshair fine reticles
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, cy);
+    ctx.lineTo(cx - 12, cy);
+    ctx.moveTo(cx + 12, cy);
+    ctx.lineTo(cx + 36, cy);
+    ctx.moveTo(cx, cy - 36);
+    ctx.lineTo(cx, cy - 12);
+    ctx.moveTo(cx, cy + 12);
+    ctx.lineTo(cx, cy + 36);
+    ctx.stroke();
+
+    // 3. Pin drop needle & head
+    ctx.beginPath();
+    ctx.arc(cx, cy - 12, 11, 0, Math.PI * 2);
+    ctx.fillStyle = "#ef4444";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Inner white dot
+    ctx.beginPath();
+    ctx.arc(cx, cy - 12, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+
+    // Needle pointer triangle
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy - 3);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx + 5, cy - 3);
+    ctx.closePath();
+    ctx.fillStyle = "#ef4444";
+    ctx.fill();
+
+    // Coordinate pill banner at bottom
+    ctx.fillStyle = "rgba(10, 12, 16, 0.9)";
+    ctx.fillRect(0, canvasH - 36, canvasW, 36);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "bold 13px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("SATELLITE ORCHARD VIEW (ZOOM 19)", 16, canvasH - 14);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 13px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`, canvasW - 16, canvasH - 14);
+
+    return canvas.toDataURL("image/jpeg", 0.95);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Draws an image with perfect aspect ratio (no stretching or blurring)
+ * inside a defined bounding box.
+ */
+function drawFittedImage(
+  doc: jsPDF,
+  img: ImageInfo,
+  boxX: number,
+  boxY: number,
+  boxW: number,
+  boxH: number
+) {
+  // Card frame
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, "FD");
+
+  const imgAspect = img.aspectRatio;
+  const boxAspect = boxW / boxH;
+
+  let renderW = boxW;
+  let renderH = boxH;
+  let renderX = boxX;
+  let renderY = boxY;
+
+  if (imgAspect > boxAspect) {
+    // Image is wider than box -> fit width
+    renderH = boxW / imgAspect;
+    renderY = boxY + (boxH - renderH) / 2;
+  } else {
+    // Image is taller than box -> fit height
+    renderW = boxH * imgAspect;
+    renderX = boxX + (boxW - renderW) / 2;
+  }
+
+  doc.addImage(img.dataUrl, "JPEG", renderX, renderY, renderW, renderH, undefined, "FAST");
+}
+
+/**
+ * Fallback empty frame when image is missing.
+ */
+function drawFallbackBox(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  label: string
+) {
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(x, y, w, h, 2, 2, "FD");
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+
+  const lines = label.split("\n");
+  lines.forEach((l, idx) => {
+    doc.text(l, x + w / 2, y + h / 2 + (idx - (lines.length - 1) / 2) * 4, {
+      align: "center",
+    });
+  });
 }
 
 /**
@@ -154,69 +311,69 @@ export async function downloadAffectedTreesPdf(
 
   // ─── Header & Cover Section ───────────────────────────────────────────────
   doc.setFillColor(15, 23, 42); // slate-900
-  doc.rect(0, 0, pageWidth, 42, "F");
+  doc.rect(0, 0, pageWidth, 44, "F");
 
   // Accent Line
   doc.setFillColor(239, 68, 68); // Red-500
-  doc.rect(0, 41, pageWidth, 2.5, "F");
+  doc.rect(0, 43, pageWidth, 2.5, "F");
 
   // Title
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("AFFECTED TREES INSPECTION REPORT", margin, 18);
+  doc.setFontSize(17);
+  doc.text("AFFECTED TREES INSPECTION REPORT", margin, 17);
 
   // Subtitle
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
+  doc.setFontSize(9);
   doc.setTextColor(203, 213, 225);
   doc.text(
-    `Review: ${review.title}  |  Conducted Date: ${review.review_date}`,
+    `Review Title: ${review.title}  |  Inspection Date: ${review.review_date}`,
     margin,
-    26
+    25
   );
 
   doc.text(
-    `Farm Location: ${review.farm_location || "All"}  |  Report Generated: ${new Date().toLocaleDateString("en-IN")}`,
+    `Farm Location: ${review.farm_location || "All Farms"}  |  Generated: ${new Date().toLocaleDateString("en-IN")}`,
     margin,
-    32
+    31
   );
 
   // Clickable link to live application
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(96, 165, 250); // Sky blue
   const dashboardUrl = "https://project-avacado-blush.vercel.app/";
-  doc.textWithLink("Live Dashboard: https://project-avacado-blush.vercel.app/", margin, 38, {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(96, 165, 250); // Sky blue
+  doc.textWithLink(`Live Dashboard: ${dashboardUrl}`, margin, 38, {
     url: dashboardUrl,
   });
 
   // ─── Summary Metrics Box ──────────────────────────────────────────────────
-  let y = 50;
+  let y = 52;
 
-  doc.setFillColor(248, 250, 252); // slate-50
-  doc.setDrawColor(226, 232, 240); // slate-200
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
   doc.roundedRect(margin, y, contentWidth, 22, 3, 3, "FD");
 
   const statCols = [
     { label: "TOTAL INSPECTED", val: `${review.total_trees}` },
-    { label: "OK STATUS", val: `${review.ok_count}` },
+    { label: "HEALTHY (OK)", val: `${review.ok_count}` },
     { label: "AFFECTED TREES", val: `${affectedTrees.length}`, isAlert: true },
-    { label: "COMPLETION", val: "100%" },
+    { label: "INSPECTION STATUS", val: "COMPLETED" },
   ];
 
   const colW = contentWidth / statCols.length;
   statCols.forEach((col, idx) => {
     const cx = margin + idx * colW + colW / 2;
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
     doc.text(col.label, cx, y + 7, { align: "center" });
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
+    doc.setFontSize(12);
     doc.setTextColor(col.isAlert ? 220 : 30, col.isAlert ? 38 : 41, col.isAlert ? 38 : 59);
-    doc.text(col.val, cx, y + 17, { align: "center" });
+    doc.text(col.val, cx, y + 16, { align: "center" });
 
     if (idx < statCols.length - 1) {
       doc.setDrawColor(226, 232, 240);
@@ -238,7 +395,7 @@ export async function downloadAffectedTreesPdf(
     doc.text("No Affected Trees Reported", margin + 10, y + 15);
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(71, 85, 105);
     doc.text(
       "All inspected trees were marked in healthy (OK) condition during this review cycle.",
@@ -251,16 +408,18 @@ export async function downloadAffectedTreesPdf(
   }
 
   // ─── Affected Trees Detailed Cards ──────────────────────────────────────
-  // Exactly 1 or 2 trees per page depending on size. Let's do 1 comprehensive tree record per page or clean 2-per-page.
-  // With 3 images (Map, Original Tree Photo, Affected Point Photo), each card takes ~110mm height.
-  // Exactly 2 cards fit per A4 page!
-
   for (let i = 0; i < affectedTrees.length; i++) {
     const tree = affectedTrees[i];
     onProgress?.(`Processing affected tree ${i + 1} of ${affectedTrees.length} (${tree.tree_id})…`);
 
-    // Fetch all images for this tree from the database if not present
-    let allDbPhotos: string[] = tree.all_tree_photos ? [...tree.all_tree_photos] : [];
+    // Fetch all registered photos for this tree from Supabase DB
+    const allDbPhotos: string[] = [];
+    if (Array.isArray(tree.all_tree_photos)) {
+      tree.all_tree_photos.forEach((u) => {
+        if (u && typeof u === "string" && !allDbPhotos.includes(u)) allDbPhotos.push(u);
+      });
+    }
+
     if (allDbPhotos.length === 0) {
       try {
         const { data: dbRow } = await supabase
@@ -289,9 +448,10 @@ export async function downloadAffectedTreesPdf(
       allDbPhotos.push(tree.original_photo_url);
     }
 
-    // Determine card layout and required height
-    const hasMultipleDbPhotos = allDbPhotos.length > 1;
-    const cardH = hasMultipleDbPhotos ? 148 : 112;
+    // Determine layout and height
+    const hasDbPhotos = allDbPhotos.length > 0;
+    // Base card height: Header (14) + Top images (56) + DB photos row (44 if present) + Notes (26) + padding
+    const cardH = hasDbPhotos ? 146 : 106;
 
     // Check if new page is needed
     if (y + cardH > pageHeight - margin) {
@@ -302,229 +462,174 @@ export async function downloadAffectedTreesPdf(
     const cardY = y;
     const treeLinkUrl = `https://project-avacado-blush.vercel.app/trees?search=${encodeURIComponent(tree.tree_id)}`;
 
-    // Card background & border
+    // Outer card container
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(203, 213, 225);
     doc.roundedRect(margin, cardY, contentWidth, cardH, 3, 3, "FD");
 
-    // Card Header Bar
-    doc.setFillColor(254, 242, 242); // red-50
+    // ─── Card Header Bar ──────────────────────────────────────────────────
+    doc.setFillColor(248, 250, 252);
     doc.roundedRect(margin, cardY, contentWidth, 14, 3, 3, "F");
-    doc.setDrawColor(254, 202, 202); // red-200
+    doc.setDrawColor(226, 232, 240);
     doc.line(margin, cardY + 14, margin + contentWidth, cardY + 14);
 
-    // Tree ID Badge & Clickable App Link
+    // Red left accent pip
+    doc.setFillColor(220, 38, 38);
+    doc.roundedRect(margin, cardY, 3.5, 14, 2, 2, "F");
+
+    // Tree ID & Metadata
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10.5);
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Tree ID: ${tree.tree_id}`, margin + 7, cardY + 9.5);
+
+    // Badges: Type & Farm
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.setTextColor(220, 38, 38);
-    doc.text(`AFFECTED TREE: ${tree.tree_id}`, margin + 4, cardY + 9.5);
+    doc.text("[DEFECT REPORTED]", margin + 46, cardY + 9.5);
 
-    // Clickable link pill to live app
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(37, 99, 235); // Blue
-    const linkText = "🔗 View Details on App ↗";
-    const linkTextW = doc.getTextWidth(linkText);
-    const linkX = margin + 65;
-    doc.textWithLink(linkText, linkX, cardY + 9.5, { url: treeLinkUrl });
-    doc.link(linkX - 1, cardY + 3, linkTextW + 2, 8, { url: treeLinkUrl });
-
-    // Type / Location metadata
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    const metaStr = `Type: ${tree.type.toUpperCase()}  |  Farm: ${tree.farm_location || "Attuvampatti"}  |  GPS: ${tree.latitude.toFixed(6)}, ${tree.longitude.toFixed(6)}`;
-    doc.text(metaStr, margin + contentWidth - 4, cardY + 9.5, { align: "right" });
+    const metaStr = `Type: ${tree.type.toUpperCase()}  |  ${tree.farm_location || "Attuvampatti"}  |  ${tree.latitude.toFixed(6)}, ${tree.longitude.toFixed(6)}`;
+    doc.text(metaStr, margin + 86, cardY + 9.5);
 
-    // ─── Render Images ────────────────────────────────────────────────────────
-    if (!hasMultipleDbPhotos) {
-      // 3 Columns: 1) Map, 2) Tree DB Photo, 3) Affected Point Photo
-      const imgColW = (contentWidth - 12) / 3; // ~57mm each
-      const imgH = 48; // mm
-      const imgY = cardY + 18;
+    // ─── Clickable Button Pill: View on Dashboard ──────────────────────────
+    const btnW = 38;
+    const btnH = 8;
+    const btnX = margin + contentWidth - btnW - 3;
+    const btnY = cardY + 3;
 
-      // 1. Map Location Column
-      const col1X = margin + 3;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text("1. LOCATION MAP", col1X, imgY + 4);
+    doc.setFillColor(37, 99, 235); // Royal Blue
+    doc.roundedRect(btnX, btnY, btnW, btnH, 2, 2, "F");
 
-      const mapDataUrl = await generateMapSnapshot(tree.latitude, tree.longitude);
-      if (mapDataUrl) {
-        try {
-          doc.addImage(mapDataUrl, "JPEG", col1X, imgY + 6, imgColW, imgH);
-        } catch {
-          drawFallbackBox(doc, col1X, imgY + 6, imgColW, imgH, "Map Tile");
-        }
-      } else {
-        drawFallbackBox(doc, col1X, imgY + 6, imgColW, imgH, `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("↗ View on Dashboard", btnX + btnW / 2, btnY + 5.2, { align: "center" });
+
+    // Active clickable hyperlink over button
+    doc.link(btnX, btnY, btnW, btnH, { url: treeLinkUrl });
+
+    // ─── Row 1: High Precision Satellite Map & Close-Up Defect Photo ───────
+    const row1W = (contentWidth - 9) / 2; // ~86.5mm each
+    const row1H = 46;
+    const row1Y = cardY + 18;
+
+    // 1. Zoomed Satellite Map (Zoom 19)
+    const mapColX = margin + 3;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("1. PRECISE LOCATION (ZOOM 19 SATELLITE)", mapColX, row1Y + 3.5);
+
+    const mapDataUrl = await generateZoomedMapSnapshot(tree.latitude, tree.longitude);
+    if (mapDataUrl) {
+      try {
+        doc.addImage(mapDataUrl, "JPEG", mapColX, row1Y + 5.5, row1W, row1H);
+      } catch {
+        drawFallbackBox(doc, mapColX, row1Y + 5.5, row1W, row1H, "Map Tile");
       }
-
-      // 2. Tree DB Photo
-      const col2X = col1X + imgColW + 3;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text("2. TREE PHOTO (MAIN DB)", col2X, imgY + 4);
-
-      const dbPhotoUrl = allDbPhotos[0] ? await urlToDataUrl(allDbPhotos[0]) : null;
-      if (dbPhotoUrl) {
-        try {
-          doc.addImage(dbPhotoUrl, "JPEG", col2X, imgY + 6, imgColW, imgH);
-        } catch {
-          drawFallbackBox(doc, col2X, imgY + 6, imgColW, imgH, "Tree Photo");
-        }
-      } else {
-        drawFallbackBox(doc, col2X, imgY + 6, imgColW, imgH, "No photo in\nmain database");
-      }
-
-      // 3. Affected Point Photo
-      const col3X = col2X + imgColW + 3;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(220, 38, 38);
-      doc.text("3. AFFECTED POINT PHOTO", col3X, imgY + 4);
-
-      const affPhoto = tree.affected_photo_url ? await urlToDataUrl(tree.affected_photo_url) : null;
-      if (affPhoto) {
-        try {
-          doc.addImage(affPhoto, "JPEG", col3X, imgY + 6, imgColW, imgH);
-        } catch {
-          drawFallbackBox(doc, col3X, imgY + 6, imgColW, imgH, "Affected Photo");
-        }
-      } else {
-        drawFallbackBox(doc, col3X, imgY + 6, imgColW, imgH, "No affected point\nphoto provided");
-      }
-
-      // Notes Box
-      const notesY = imgY + imgH + 8;
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin + 3, notesY, contentWidth - 6, 22, 2, 2, "FD");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text("INSPECTION REMARKS & DEFECT NOTES:", margin + 6, notesY + 5.5);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(30, 41, 59);
-      const notesText = tree.affected_notes?.trim() || "Tree flagged as affected during this inspection. Field diagnosis and remedial action recommended.";
-      const splitNotes = doc.splitTextToSize(notesText, contentWidth - 14);
-      doc.text(splitNotes, margin + 6, notesY + 11.5);
-
-      // Direct Link inside card
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.textWithLink(`Tree Details: ${treeLinkUrl}`, margin + 6, notesY + 19, { url: treeLinkUrl });
     } else {
-      // Multiple DB photos:
-      // Row 1: Map (half width) + Affected Point Photo (half width)
-      const halfColW = (contentWidth - 9) / 2; // ~86mm
-      const row1H = 42;
-      const row1Y = cardY + 18;
-
-      // 1. Location Map
-      const r1c1X = margin + 3;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text("1. LOCATION MAP", r1c1X, row1Y + 4);
-
-      const mapDataUrl = await generateMapSnapshot(tree.latitude, tree.longitude);
-      if (mapDataUrl) {
-        try {
-          doc.addImage(mapDataUrl, "JPEG", r1c1X, row1Y + 6, halfColW, row1H);
-        } catch {
-          drawFallbackBox(doc, r1c1X, row1Y + 6, halfColW, row1H, "Map Tile");
-        }
-      } else {
-        drawFallbackBox(doc, r1c1X, row1Y + 6, halfColW, row1H, `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`);
-      }
-
-      // 2. Affected Point Photo
-      const r1c2X = r1c1X + halfColW + 3;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(220, 38, 38);
-      doc.text("2. AFFECTED POINT DEFECT PHOTO", r1c2X, row1Y + 4);
-
-      const affPhoto = tree.affected_photo_url ? await urlToDataUrl(tree.affected_photo_url) : null;
-      if (affPhoto) {
-        try {
-          doc.addImage(affPhoto, "JPEG", r1c2X, row1Y + 6, halfColW, row1H);
-        } catch {
-          drawFallbackBox(doc, r1c2X, row1Y + 6, halfColW, row1H, "Affected Photo");
-        }
-      } else {
-        drawFallbackBox(doc, r1c2X, row1Y + 6, halfColW, row1H, "No affected point photo provided");
-      }
-
-      // Row 2: All DB Tree Images (up to 4 images side-by-side)
-      const row2Y = row1Y + row1H + 8;
-      const displayDbPhotos = allDbPhotos.slice(0, 4);
-      const dbColW = (contentWidth - 6 - (displayDbPhotos.length - 1) * 3) / displayDbPhotos.length;
-      const row2H = 34;
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`3. TREE REGISTERED IMAGES IN MAIN DB (${allDbPhotos.length} photo${allDbPhotos.length > 1 ? "s" : ""})`, margin + 3, row2Y + 4);
-
-      for (let pIdx = 0; pIdx < displayDbPhotos.length; pIdx++) {
-        const pX = margin + 3 + pIdx * (dbColW + 3);
-        const pUrl = await urlToDataUrl(displayDbPhotos[pIdx]);
-        if (pUrl) {
-          try {
-            doc.addImage(pUrl, "JPEG", pX, row2Y + 6, dbColW, row2H);
-          } catch {
-            drawFallbackBox(doc, pX, row2Y + 6, dbColW, row2H, `Photo ${pIdx + 1}`);
-          }
-        } else {
-          drawFallbackBox(doc, pX, row2Y + 6, dbColW, row2H, `Photo ${pIdx + 1}`);
-        }
-      }
-
-      // Notes Box
-      const notesY = row2Y + row2H + 8;
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin + 3, notesY, contentWidth - 6, 24, 2, 2, "FD");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text("INSPECTION REMARKS & DEFECT NOTES:", margin + 6, notesY + 5.5);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(30, 41, 59);
-      const notesText = tree.affected_notes?.trim() || "Tree flagged as affected during this inspection. Field diagnosis and remedial action recommended.";
-      const splitNotes = doc.splitTextToSize(notesText, contentWidth - 14);
-      doc.text(splitNotes, margin + 6, notesY + 11.5);
-
-      // Direct Link inside card
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.textWithLink(`Tree Details: ${treeLinkUrl}`, margin + 6, notesY + 20, { url: treeLinkUrl });
+      drawFallbackBox(
+        doc,
+        mapColX,
+        row1Y + 5.5,
+        row1W,
+        row1H,
+        `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`
+      );
     }
 
-    y = cardY + cardH + 8;
+    // 2. Affected Point Defect Photo (with aspect-ratio preservation)
+    const affColX = mapColX + row1W + 3;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(220, 38, 38);
+    doc.text("2. CLOSE-UP DEFECT PHOTO (AFFECTED POINT)", affColX, row1Y + 3.5);
+
+    const affImgInfo = tree.affected_photo_url ? await loadImageInfo(tree.affected_photo_url) : null;
+    if (affImgInfo) {
+      drawFittedImage(doc, affImgInfo, affColX, row1Y + 5.5, row1W, row1H);
+    } else {
+      drawFallbackBox(doc, affColX, row1Y + 5.5, row1W, row1H, "No close-up defect\nphotograph attached");
+    }
+
+    // ─── Row 2: All Registered Tree Photos (from Database) ──────────────────
+    let nextY = row1Y + row1H + 9;
+
+    if (hasDbPhotos) {
+      const displayPhotos = allDbPhotos.slice(0, 4);
+      const dbColW = (contentWidth - 6 - (displayPhotos.length - 1) * 3) / displayPhotos.length;
+      const dbColH = 32;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(
+        `3. REGISTERED TREE IMAGES IN DATABASE (${allDbPhotos.length} photo${allDbPhotos.length > 1 ? "s" : ""})`,
+        margin + 3,
+        nextY + 3.5
+      );
+
+      for (let pIdx = 0; pIdx < displayPhotos.length; pIdx++) {
+        const pX = margin + 3 + pIdx * (dbColW + 3);
+        const pInfo = await loadImageInfo(displayPhotos[pIdx]);
+        if (pInfo) {
+          drawFittedImage(doc, pInfo, pX, nextY + 5.5, dbColW, dbColH);
+        } else {
+          drawFallbackBox(doc, pX, nextY + 5.5, dbColW, dbColH, `Photo #${pIdx + 1}`);
+        }
+      }
+
+      nextY += dbColH + 9;
+    }
+
+    // ─── Inspection Observations & Remarks Box ────────────────────────────
+    const notesBoxH = 21;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(margin + 3, nextY, contentWidth - 6, notesBoxH, 2, 2, "FD");
+
+    // Blue indicator on notes box
+    doc.setFillColor(37, 99, 235);
+    doc.roundedRect(margin + 3, nextY, 2.5, notesBoxH, 1, 1, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text("INSPECTION OBSERVATIONS & DEFECT DIAGNOSIS:", margin + 8, nextY + 5.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(30, 41, 59);
+    const notesText =
+      tree.affected_notes?.trim() ||
+      "Tree flagged as affected during this inspection cycle. Immediate field verification and remediation recommended.";
+    const splitNotes = doc.splitTextToSize(notesText, contentWidth - 18);
+    doc.text(splitNotes, margin + 8, nextY + 11.5);
+
+    // Direct Link line
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.textWithLink(`Tree Details: ${treeLinkUrl}`, margin + 8, nextY + 18, {
+      url: treeLinkUrl,
+    });
+
+    y = cardY + cardH + 7;
   }
 
-  // ─── Page Numbers on All Pages ──────────────────────────────────────────
+  // ─── Page Numbers & Footer on All Pages ──────────────────────────────────
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `Page ${p} of ${totalPages}  |  Mages Farms Field Review Tracking`,
+      `Page ${p} of ${totalPages}  |  Mages Farms Tree Review Tracking  |  https://project-avacado-blush.vercel.app/`,
       pageWidth / 2,
       pageHeight - 6,
       { align: "center" }
@@ -533,26 +638,4 @@ export async function downloadAffectedTreesPdf(
 
   onProgress?.("Downloading PDF…");
   doc.save(`Affected_Trees_Report_${review.review_date}_${review.id}.pdf`);
-}
-
-function drawFallbackBox(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  label: string
-) {
-  doc.setFillColor(241, 245, 249);
-  doc.setDrawColor(203, 213, 225);
-  doc.rect(x, y, w, h, "FD");
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(148, 163, 184);
-  const lines = label.split("\n");
-  lines.forEach((l, idx) => {
-    doc.text(l, x + w / 2, y + h / 2 + (idx - (lines.length - 1) / 2) * 4, {
-      align: "center",
-    });
-  });
 }

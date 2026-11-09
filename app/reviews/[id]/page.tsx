@@ -13,6 +13,7 @@ import type {
 import {
   getReviewById,
   saveReviewRecord,
+  deleteReviewRecord,
   uploadAffectedPointPhoto,
   calculateReviewMetrics,
 } from "@/lib/reviewStorage";
@@ -58,6 +59,14 @@ export default function ReviewExecutionPage() {
   const [savingPartial, setSavingPartial] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState("");
   const [completing, setCompleting] = useState(false);
+  const [savingModalItem, setSavingModalItem] = useState(false);
+  const [modalSavedMsg, setModalSavedMsg] = useState("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
+  const [mapUpdatedToast, setMapUpdatedToast] = useState<string | null>(null);
+
+  // Delete review state
+  const [showDeleteReviewModal, setShowDeleteReviewModal] = useState(false);
+  const [isDeletingReview, setIsDeletingReview] = useState(false);
 
   // Complete confirmation modal (shown when some trees are still unreviewed)
   const [showPendingConfirmModal, setShowPendingConfirmModal] = useState(false);
@@ -91,16 +100,19 @@ export default function ReviewExecutionPage() {
     loadReview();
   }, [loadReview]);
 
-  // Set individual tree status (OK or Affected) with immediate auto-save
-  const setItemStatus = async (treeId: string, status: "ok" | "affected") => {
+  // Set individual tree status (OK or Affected) with immediate auto-save and map update feedback
+  const setItemStatus = async (treeId: string, status: "ok" | "affected" | null) => {
     if (!review) return;
+    setIsUpdatingStatus(treeId);
 
     const updatedItems = review.items.map((item) => {
       if (item.tree_id === treeId) {
         return {
           ...item,
           status,
-          reviewed_at: new Date().toISOString(),
+          reviewed_at: status !== null ? new Date().toISOString() : null,
+          affected_photo_url: status === "ok" || status === null ? null : item.affected_photo_url,
+          affected_notes: status === "ok" || status === null ? null : item.affected_notes,
         };
       }
       return item;
@@ -119,8 +131,19 @@ export default function ReviewExecutionPage() {
     const current = updatedItems.find((i) => i.tree_id === treeId);
     if (current) setSelectedTree(current);
 
-    // Auto save immediately!
-    await saveReviewRecord(updatedReview);
+    try {
+      await saveReviewRecord(updatedReview);
+      setMapUpdatedToast(
+        status !== null
+          ? `✓ Map pin updated: ${treeId} marked ${status.toUpperCase()}`
+          : `Map pin reset: ${treeId}`
+      );
+      setTimeout(() => setMapUpdatedToast(null), 3000);
+    } catch (e) {
+      console.warn("Auto save error:", e);
+    } finally {
+      setTimeout(() => setIsUpdatingStatus(null), 350);
+    }
   };
 
   // Update affected tree remarks
@@ -269,12 +292,41 @@ export default function ReviewExecutionPage() {
     }
   };
 
-  // Save and close modal
+  // Save and close modal with loading animation and map update feedback
   const handleModalSaveAndClose = async () => {
-    if (review) {
+    if (!review) return;
+    setSavingModalItem(true);
+    setModalSavedMsg("Saving & updating map…");
+
+    try {
       await saveReviewRecord(review);
+      setModalSavedMsg("✓ Saved & Map Updated!");
+      setMapUpdatedToast(`✓ Map updated for Tree ${selectedTree?.tree_id || ""}`);
+      setTimeout(() => setMapUpdatedToast(null), 3000);
+
+      setTimeout(() => {
+        setSavingModalItem(false);
+        setModalSavedMsg("");
+        setSelectedTree(null);
+      }, 450);
+    } catch (err) {
+      alert("Failed to save changes: " + (err instanceof Error ? err.message : ""));
+      setSavingModalItem(false);
+      setModalSavedMsg("");
     }
-    setSelectedTree(null);
+  };
+
+  // Delete entire review record
+  const handleDeleteReview = async () => {
+    if (!review) return;
+    setIsDeletingReview(true);
+    try {
+      await deleteReviewRecord(review.id);
+      router.push("/reviews");
+    } catch (err) {
+      alert("Failed to delete review: " + (err instanceof Error ? err.message : ""));
+      setIsDeletingReview(false);
+    }
   };
 
   // Next tree navigation inside modal
@@ -601,6 +653,19 @@ export default function ReviewExecutionPage() {
                   </span>
                 </button>
               )}
+
+              {/* Delete Review Button */}
+              <button
+                type="button"
+                onClick={() => setShowDeleteReviewModal(true)}
+                className="p-1.5 rounded-xl border border-zinc-700 bg-white/[0.04] text-zinc-400 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 active:scale-95 transition-all"
+                title="Delete this entire review record"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -690,6 +755,14 @@ export default function ReviewExecutionPage() {
         {/* 1. MAP VIEW (Default with GPS Location Tracking) */}
         {viewMode === "map" && (
           <div className="relative w-full h-full">
+            {/* Live Map Update Toast */}
+            {mapUpdatedToast && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1100] px-4 py-2 rounded-xl bg-zinc-950/90 border border-emerald-500/60 text-emerald-300 text-xs font-bold shadow-2xl backdrop-blur-md flex items-center gap-2 animate-bounce pointer-events-none">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>{mapUpdatedToast}</span>
+              </div>
+            )}
+
             <ReviewMapView
               items={filteredItems}
               selectedTreeId={selectedTree?.tree_id ?? null}
@@ -881,9 +954,33 @@ export default function ReviewExecutionPage() {
 
             {/* Choose OK or Affected Option */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Evaluation Status <span className="text-red-400">*</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Evaluation Status <span className="text-red-400">*</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {isUpdatingStatus === selectedTree.tree_id && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold animate-pulse">
+                      <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Updating map pin…</span>
+                    </div>
+                  )}
+                  {selectedTree.status !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setItemStatus(selectedTree.tree_id, null)}
+                      className="text-[11px] text-zinc-500 hover:text-amber-400 flex items-center gap-1 transition-colors"
+                      title="Clear evaluation and reset to pending"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                      </svg>
+                      <span>Reset Status</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 {/* OK Button */}
@@ -1021,10 +1118,23 @@ export default function ReviewExecutionPage() {
                 <button
                   type="button"
                   onClick={handleModalSaveAndClose}
-                  disabled={selectedTree.status === null}
-                  className="px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md active:scale-95 disabled:opacity-40"
+                  disabled={selectedTree.status === null || savingModalItem}
+                  className="px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md active:scale-95 disabled:opacity-40 flex items-center gap-2"
                 >
-                  Done
+                  {savingModalItem ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                      <polyline points="17 21 17 13 7 13 7 21" />
+                      <polyline points="7 3 7 8 15 8" />
+                    </svg>
+                  )}
+                  <span>
+                    {savingModalItem
+                      ? modalSavedMsg || "Saving & Updating Map…"
+                      : "Save & Update Map"}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1103,6 +1213,45 @@ export default function ReviewExecutionPage() {
         onCapture={handleAffectedCameraCapture}
         title={`Capture Affected Point (${cameraActiveTreeId || ""})`}
       />
+
+      {/* Delete Review Cycle Modal */}
+      {showDeleteReviewModal && (
+        <div className="fixed inset-0 z-[1400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div
+            className="w-full max-w-sm p-5 rounded-2xl border shadow-2xl space-y-4"
+            style={{
+              background: "var(--bg-card)",
+              borderColor: "var(--border-secondary)",
+            }}
+          >
+            <h3 className="font-bold text-sm text-zinc-100">Delete Review Cycle</h3>
+            <p className="text-xs text-zinc-400">
+              Are you sure you want to permanently delete review <strong className="text-white font-mono">{review.id}</strong>? All checklist and report data will be removed.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteReviewModal(false)}
+                disabled={isDeletingReview}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteReview}
+                disabled={isDeletingReview}
+                className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-600 hover:bg-red-500 text-white flex items-center gap-2 active:scale-95 disabled:opacity-50"
+              >
+                {isDeletingReview && (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                <span>{isDeletingReview ? "Deleting…" : "Delete"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
