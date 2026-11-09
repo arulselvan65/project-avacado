@@ -50,7 +50,7 @@ export default function TreeEditModal({
   onSaved,
 }: TreeEditModalProps) {
   const [treeId, setTreeId] = useState("");
-  const [type, setType] = useState<"tree" | "plant">("tree");
+  const [type, setType] = useState<"tree" | "plant" | "regrown" | "dead">("tree");
   const [farmLocation, setFarmLocation] = useState("Attuvampatti");
   const [variety, setVariety] = useState("");
   const [latitude, setLatitude] = useState("");
@@ -93,7 +93,7 @@ export default function TreeEditModal({
   useEffect(() => {
     if (tree) {
       setTreeId(tree.tree_id || "");
-      setType(tree.type || "tree");
+      setType((tree.type as "tree" | "plant" | "regrown" | "dead") || "tree");
       setFarmLocation(tree.farm_location || "Attuvampatti");
       setVariety(tree.variety || "");
       setLatitude(tree.latitude?.toString() || "");
@@ -205,14 +205,14 @@ export default function TreeEditModal({
     setNewPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Camera capture
-  const handleCameraCapture = (file: File) => {
+  // Camera capture (multi-capture: receives File[])
+  const handleCameraCapture = (files: File[]) => {
     if (cameraTarget === "variety") {
-      setNewVarietyFiles((prev) => [...prev, file]);
-      setNewVarietyPreviews((prev) => [...prev, URL.createObjectURL(file)]);
+      setNewVarietyFiles((prev) => [...prev, ...files]);
+      setNewVarietyPreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
     } else if (cameraTarget === "photo") {
-      setNewPhotoFiles((prev) => [...prev, file]);
-      setNewPhotoPreviews((prev) => [...prev, URL.createObjectURL(file)]);
+      setNewPhotoFiles((prev) => [...prev, ...files]);
+      setNewPhotoPreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
     }
     setCameraTarget(null);
   };
@@ -239,13 +239,19 @@ export default function TreeEditModal({
     setErrorMsg("");
 
     try {
-      // 1. Upload new variety files
+      // Determine if variety and status sections are relevant for this type
+      const showVariety = type !== "plant" && type !== "regrown" && type !== "dead";
+      const showStatus = type !== "dead";
+
+      // 1. Upload new variety files (only if variety is shown)
       const uploadedVarietyUrls: string[] = [];
-      for (let i = 0; i < newVarietyFiles.length; i++) {
-        const url = await uploadTreeImage(newVarietyFiles[i], "variety", i);
-        uploadedVarietyUrls.push(url);
+      if (showVariety) {
+        for (let i = 0; i < newVarietyFiles.length; i++) {
+          const url = await uploadTreeImage(newVarietyFiles[i], "variety", i);
+          uploadedVarietyUrls.push(url);
+        }
       }
-      const finalVarietyUrls = [...existingVarietyImages, ...uploadedVarietyUrls];
+      const finalVarietyUrls = showVariety ? [...existingVarietyImages, ...uploadedVarietyUrls] : [];
 
       // 2. Upload new photo files
       const uploadedPhotoUrls: string[] = [];
@@ -261,14 +267,14 @@ export default function TreeEditModal({
         tree_id: treeId.trim(),
         type,
         farm_location: farmLocation,
-        variety: variety.trim() || null,
+        variety: showVariety ? (variety.trim() || null) : null,
         variety_image_url:
-          finalVarietyUrls.length > 0 ? finalVarietyUrls.join(",") : null,
+          showVariety && finalVarietyUrls.length > 0 ? finalVarietyUrls.join(",") : null,
         latitude: latNum,
         longitude: lngNum,
-        is_fruiting: isFruiting,
-        is_affected: isAffected,
-        is_pruned: isPruned,
+        is_fruiting: showStatus ? isFruiting : false,
+        is_affected: showStatus ? isAffected : false,
+        is_pruned: showStatus ? isPruned : false,
         note: note.trim() || null,
         image_urls: finalPhotoUrls,
       };
@@ -430,26 +436,52 @@ export default function TreeEditModal({
                     <span className="w-2 h-2 rounded-full bg-teal-400" />
                     <span>Plant</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setType("regrown")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                      type === "regrown"
+                        ? "border-yellow-500 text-yellow-400 bg-yellow-500/15"
+                        : "border-zinc-800 text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                    <span>Regrown</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setType("dead")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                      type === "dead"
+                        ? "border-stone-500 text-stone-400 bg-stone-500/15"
+                        : "border-zinc-800 text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-stone-400" />
+                    <span>Dead</span>
+                  </button>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-                  Variety Name
-                </label>
-                <input
-                  type="text"
-                  value={variety}
-                  onChange={(e) => setVariety(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm focus:outline-none transition-all"
-                  style={{
-                    background: "var(--bg-input)",
-                    borderColor: "var(--border-primary)",
-                    color: "var(--text-primary)",
-                  }}
-                  placeholder="e.g. Hass, Fuerte, Bacon"
-                />
-              </div>
+              {type !== "plant" && type !== "regrown" && type !== "dead" && (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                    Variety Name
+                  </label>
+                  <input
+                    type="text"
+                    value={variety}
+                    onChange={(e) => setVariety(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm focus:outline-none transition-all"
+                    style={{
+                      background: "var(--bg-input)",
+                      borderColor: "var(--border-primary)",
+                      color: "var(--text-primary)",
+                    }}
+                    placeholder="e.g. Hass, Fuerte, Bacon"
+                  />
+                </div>
+              )}
             </div>
 
             {/* 3. Location / GPS Coordinates (Enhanced Current Location option) */}
@@ -573,61 +605,63 @@ export default function TreeEditModal({
               )}
             </div>
 
-            {/* 4. Status Flags (Clean Professional Cards) */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
-                Status Parameters
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsFruiting(!isFruiting)}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
-                    isFruiting
-                      ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-sm"
-                      : "border-zinc-800 text-zinc-400 hover:bg-white/5"
-                  }`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full ${isFruiting ? "bg-emerald-400" : "bg-zinc-600"}`} />
-                  <span>Fruiting</span>
-                  <span className={`text-[10px] uppercase font-bold ${isFruiting ? "text-emerald-400" : "text-zinc-500"}`}>
-                    {isFruiting ? "Active" : "None"}
-                  </span>
-                </button>
+            {/* 4. Status Flags (hidden for dead type) */}
+            {type !== "dead" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                  Status Parameters
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsFruiting(!isFruiting)}
+                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                      isFruiting
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-sm"
+                        : "border-zinc-800 text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${isFruiting ? "bg-emerald-400" : "bg-zinc-600"}`} />
+                    <span>Fruiting</span>
+                    <span className={`text-[10px] uppercase font-bold ${isFruiting ? "text-emerald-400" : "text-zinc-500"}`}>
+                      {isFruiting ? "Active" : "None"}
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setIsAffected(!isAffected)}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
-                    isAffected
-                      ? "border-red-500/50 bg-red-500/15 text-red-300 shadow-sm"
-                      : "border-zinc-800 text-zinc-400 hover:bg-white/5"
-                  }`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full ${isAffected ? "bg-red-400" : "bg-zinc-600"}`} />
-                  <span>Affected</span>
-                  <span className={`text-[10px] uppercase font-bold ${isAffected ? "text-red-400" : "text-zinc-500"}`}>
-                    {isAffected ? "Flagged" : "Normal"}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAffected(!isAffected)}
+                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                      isAffected
+                        ? "border-red-500/50 bg-red-500/15 text-red-300 shadow-sm"
+                        : "border-zinc-800 text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${isAffected ? "bg-red-400" : "bg-zinc-600"}`} />
+                    <span>Affected</span>
+                    <span className={`text-[10px] uppercase font-bold ${isAffected ? "text-red-400" : "text-zinc-500"}`}>
+                      {isAffected ? "Flagged" : "Normal"}
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setIsPruned(!isPruned)}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
-                    isPruned
-                      ? "border-amber-500/50 bg-amber-500/15 text-amber-300 shadow-sm"
-                      : "border-zinc-800 text-zinc-400 hover:bg-white/5"
-                  }`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full ${isPruned ? "bg-amber-400" : "bg-zinc-600"}`} />
-                  <span>Pruned</span>
-                  <span className={`text-[10px] uppercase font-bold ${isPruned ? "text-amber-400" : "text-zinc-500"}`}>
-                    {isPruned ? "Done" : "Pending"}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsPruned(!isPruned)}
+                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                      isPruned
+                        ? "border-amber-500/50 bg-amber-500/15 text-amber-300 shadow-sm"
+                        : "border-zinc-800 text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${isPruned ? "bg-amber-400" : "bg-zinc-600"}`} />
+                    <span>Pruned</span>
+                    <span className={`text-[10px] uppercase font-bold ${isPruned ? "text-amber-400" : "text-zinc-500"}`}>
+                      {isPruned ? "Done" : "Pending"}
+                    </span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 5. Notes */}
             <div>
@@ -648,72 +682,74 @@ export default function TreeEditModal({
               />
             </div>
 
-            {/* 6. Variety Reference Images */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  Variety Reference Photos
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => varietyInputRef.current?.click()}
-                    className="px-2.5 py-1 rounded-lg border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-white/5"
-                  >
-                    + Upload
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCameraTarget("variety")}
-                    className="px-2.5 py-1 rounded-lg border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-white/5"
-                  >
-                    Camera
-                  </button>
+            {/* 6. Variety Reference Images (hidden for plant/regrown/dead) */}
+            {type !== "plant" && type !== "regrown" && type !== "dead" && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                    Variety Reference Photos
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => varietyInputRef.current?.click()}
+                      className="px-2.5 py-1 rounded-lg border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-white/5"
+                    >
+                      + Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCameraTarget("variety")}
+                      className="px-2.5 py-1 rounded-lg border border-zinc-800 text-xs font-medium text-zinc-300 hover:bg-white/5"
+                    >
+                      Camera
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  ref={varietyInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleVarietyFileInput}
+                />
+
+                <div className="flex flex-wrap gap-2">
+                  {existingVarietyImages.map((url, idx) => (
+                    <div key={`exist-var-${idx}`} className="relative w-16 h-16 rounded-xl border border-zinc-700/60 overflow-hidden">
+                      <img src={url} alt={`Variety ${idx}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeExistingVarietyImage(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md"
+                        title="Remove image"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {newVarietyPreviews.map((preview, idx) => (
+                    <div key={`new-var-${idx}`} className="relative w-16 h-16 rounded-xl border border-emerald-500/50 overflow-hidden">
+                      <img src={preview} alt={`New Variety ${idx}`} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-0 inset-x-0 bg-emerald-600 text-white text-[8px] font-bold text-center py-0.5">NEW</span>
+                      <button
+                        type="button"
+                        onClick={() => removeNewVarietyFile(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md"
+                        title="Remove image"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {existingVarietyImages.length === 0 && newVarietyPreviews.length === 0 && (
+                    <p className="text-xs text-zinc-500 py-1">No reference photos attached.</p>
+                  )}
                 </div>
               </div>
-
-              <input
-                ref={varietyInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={handleVarietyFileInput}
-              />
-
-              <div className="flex flex-wrap gap-2">
-                {existingVarietyImages.map((url, idx) => (
-                  <div key={`exist-var-${idx}`} className="relative w-16 h-16 rounded-xl border border-zinc-700/60 overflow-hidden">
-                    <img src={url} alt={`Variety ${idx}`} className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeExistingVarietyImage(idx)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md"
-                      title="Remove image"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {newVarietyPreviews.map((preview, idx) => (
-                  <div key={`new-var-${idx}`} className="relative w-16 h-16 rounded-xl border border-emerald-500/50 overflow-hidden">
-                    <img src={preview} alt={`New Variety ${idx}`} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0 inset-x-0 bg-emerald-600 text-white text-[8px] font-bold text-center py-0.5">NEW</span>
-                    <button
-                      type="button"
-                      onClick={() => removeNewVarietyFile(idx)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md"
-                      title="Remove image"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {existingVarietyImages.length === 0 && newVarietyPreviews.length === 0 && (
-                  <p className="text-xs text-zinc-500 py-1">No reference photos attached.</p>
-                )}
-              </div>
-            </div>
+            )}
 
             {/* 7. Tree Field Photos */}
             <div>

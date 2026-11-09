@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 interface CameraCaptureModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCapture: (file: File) => void;
+  onCapture: (files: File[]) => void;
   title?: string;
 }
 
@@ -21,6 +21,10 @@ export default function CameraCaptureModal({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Multi-capture: accumulated photos
+  const [capturedFiles, setCapturedFiles] = useState<File[]>([]);
+  const [capturedPreviews, setCapturedPreviews] = useState<string[]>([]);
+
   // Stop camera tracks helper
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -28,6 +32,14 @@ export default function CameraCaptureModal({
       streamRef.current = null;
     }
   }, []);
+
+  // Reset captured photos when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setCapturedFiles([]);
+      setCapturedPreviews([]);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -98,7 +110,7 @@ export default function CameraCaptureModal({
     setFacingMode((prev) => (prev === "environment" ? "user" : "environment"));
   };
 
-  // Capture snapshot from video feed
+  // Capture snapshot from video feed — stays open for more captures
   const handleSnap = () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
@@ -117,13 +129,37 @@ export default function CameraCaptureModal({
         if (!blob) return;
         const filename = `photo_${Date.now()}.jpg`;
         const file = new File([blob], filename, { type: "image/jpeg" });
-        onCapture(file);
-        stopCamera();
-        onClose();
+        const preview = URL.createObjectURL(blob);
+
+        setCapturedFiles((prev) => [...prev, file]);
+        setCapturedPreviews((prev) => [...prev, preview]);
       },
       "image/jpeg",
       0.92
     );
+  };
+
+  // Remove a captured photo
+  const removeCapture = (index: number) => {
+    setCapturedFiles((prev) => prev.filter((_, i) => i !== index));
+    setCapturedPreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Done — deliver all captured files and close
+  const handleDone = () => {
+    if (capturedFiles.length > 0) {
+      onCapture(capturedFiles);
+    }
+    stopCamera();
+    onClose();
+  };
+
+  // Cancel — discard all and close
+  const handleCancel = () => {
+    setCapturedFiles([]);
+    setCapturedPreviews([]);
+    stopCamera();
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -156,10 +192,7 @@ export default function CameraCaptureModal({
             </p>
             <button
               type="button"
-              onClick={() => {
-                stopCamera();
-                onClose();
-              }}
+              onClick={handleCancel}
               className="mt-2 px-6 py-2.5 rounded-xl bg-white/8 hover:bg-white/12 text-white/80 font-medium text-sm transition-colors border border-white/10"
             >
               Close
@@ -192,10 +225,7 @@ export default function CameraCaptureModal({
       <div className="relative z-30 pt-safe px-5 py-4 flex items-center justify-between" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)" }}>
         <button
           type="button"
-          onClick={() => {
-            stopCamera();
-            onClose();
-          }}
+          onClick={handleCancel}
           className="w-10 h-10 rounded-full flex items-center justify-center text-white/80 bg-black/30 backdrop-blur-md border border-white/10 hover:bg-black/50 transition-colors"
           aria-label="Close camera"
         >
@@ -222,15 +252,43 @@ export default function CameraCaptureModal({
         </button>
       </div>
 
+      {/* ── Captured Photos Strip (Thumbnails with ✕ remove) ── */}
+      {capturedPreviews.length > 0 && (
+        <div
+          className="relative z-30 px-4 py-2 flex items-center gap-2 overflow-x-auto"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
+        >
+          <span className="text-[11px] font-bold text-white/50 shrink-0 uppercase tracking-wider mr-1">
+            {capturedPreviews.length} taken
+          </span>
+          {capturedPreviews.map((src, i) => (
+            <div key={i} className="relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-white/20">
+              <img src={src} alt={`Capture ${i + 1}`} className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeCapture(i);
+                }}
+                className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg"
+                aria-label={`Remove photo ${i + 1}`}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Bottom Controls Bar ── */}
-      <div className="relative z-30 pb-safe px-6 py-8 flex items-center justify-center gap-10" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)" }}>
+      <div className="relative z-30 pb-safe px-6 py-8 flex items-center justify-center gap-6" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)" }}>
         <button
           type="button"
-          onClick={() => {
-            stopCamera();
-            onClose();
-          }}
-          className="px-5 py-2 rounded-full text-xs font-medium text-white/60 hover:text-white/90 transition-colors"
+          onClick={handleCancel}
+          className="px-4 py-2 rounded-full text-xs font-medium text-white/60 hover:text-white/90 transition-colors"
         >
           Cancel
         </button>
@@ -246,13 +304,24 @@ export default function CameraCaptureModal({
           <div className="w-full h-full rounded-full bg-white group-active:scale-90 transition-transform" />
         </button>
 
-        <button
-          type="button"
-          onClick={toggleFacingMode}
-          className="px-5 py-2 rounded-full text-xs font-medium text-white/60 hover:text-white/90 transition-colors"
-        >
-          {facingMode === "environment" ? "Front" : "Rear"}
-        </button>
+        {/* Done Button — visible when photos are captured */}
+        {capturedPreviews.length > 0 ? (
+          <button
+            type="button"
+            onClick={handleDone}
+            className="px-4 py-2 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shadow-lg"
+          >
+            Done ({capturedPreviews.length})
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={toggleFacingMode}
+            className="px-4 py-2 rounded-full text-xs font-medium text-white/60 hover:text-white/90 transition-colors"
+          >
+            {facingMode === "environment" ? "Front" : "Rear"}
+          </button>
+        )}
       </div>
     </div>
   );

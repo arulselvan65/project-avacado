@@ -5,6 +5,7 @@ import {
   MapContainer,
   TileLayer,
   Marker,
+  Popup,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -92,6 +93,50 @@ function createDraggablePinIcon(size = 36): L.DivIcon {
 
 const DRAGGABLE_PIN_ICON = createDraggablePinIcon();
 
+// ─── Small Read-Only Dot Icon for Existing Trees ────────────────────────────
+
+function createExistingTreeDotIcon(color = "#22c55e", size = 18): L.DivIcon {
+  const half = size / 2;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+      <circle cx="${half}" cy="${half}" r="${half - 2}" fill="${color}" fill-opacity="0.3"
+              stroke="${color}" stroke-width="1"/>
+      <circle cx="${half}" cy="${half}" r="4" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+    </svg>`;
+
+  return L.divIcon({
+    html: svg,
+    className: "existing-tree-dot",
+    iconSize: [size, size],
+    iconAnchor: [half, half],
+    popupAnchor: [0, -half],
+  });
+}
+
+const DOT_TREE = createExistingTreeDotIcon("#22c55e");
+const DOT_PLANT = createExistingTreeDotIcon("#86efac");
+const DOT_REGROWN = createExistingTreeDotIcon("#facc15");
+const DOT_DEAD = createExistingTreeDotIcon("#78716c");
+const DOT_AFFECTED = createExistingTreeDotIcon("#ef4444");
+
+interface ExistingTreePoint {
+  id: string;
+  tree_id: string;
+  type: string;
+  latitude: number;
+  longitude: number;
+  is_affected?: boolean;
+  farm_location?: string | null;
+}
+
+function getExistingTreeIcon(point: ExistingTreePoint): L.DivIcon {
+  if (point.is_affected) return DOT_AFFECTED;
+  if (point.type === "dead") return DOT_DEAD;
+  if (point.type === "regrown") return DOT_REGROWN;
+  if (point.type === "plant") return DOT_PLANT;
+  return DOT_TREE;
+}
+
 // ─── Map Event Listeners Component ──────────────────────────────────────────
 
 interface MapClickEventsProps {
@@ -145,12 +190,14 @@ interface LocationPickerMapProps {
   lat: number | null;
   lng: number | null;
   onLocationSelect: (lat: number, lng: number) => void;
+  existingTrees?: ExistingTreePoint[];
 }
 
 export default function LocationPickerMap({
   lat,
   lng,
   onLocationSelect,
+  existingTrees = [],
 }: LocationPickerMapProps) {
   const [activeStyle, setActiveStyle] = useState<MapStyle>("google_hybrid");
   const markerRef = useRef<L.Marker | null>(null);
@@ -265,6 +312,25 @@ export default function LocationPickerMap({
             ref={markerRef}
           />
         )}
+
+        {/* Existing registered trees shown as small dots */}
+        {existingTrees.map((point) => (
+          <Marker
+            key={point.id}
+            position={[point.latitude, point.longitude]}
+            icon={getExistingTreeIcon(point)}
+          >
+            <Popup className="tree-popup" maxWidth={200}>
+              <div className="text-center py-1.5 px-2">
+                <span className="text-xs font-bold text-white">{point.tree_id}</span>
+                <span className="text-[10px] text-slate-400 ml-1.5 uppercase">{point.type}</span>
+                {point.farm_location && (
+                  <p className="text-[10px] text-slate-500 mt-0.5">{point.farm_location}</p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );

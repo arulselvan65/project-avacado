@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, type FormEvent } from "react";
+import { useState, useRef, useCallback, useEffect, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -28,9 +28,11 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+type TreeType = "tree" | "plant" | "regrown" | "dead" | "";
+
 interface FormData {
   tree_id: string;
-  type: "tree" | "plant" | "";
+  type: TreeType;
   variety: string;
   latitude: string;
   longitude: string;
@@ -42,11 +44,20 @@ interface FormData {
 }
 
 interface FormErrors {
-  tree_id?: string;
   type?: string;
   latitude?: string;
   longitude?: string;
   farm_location?: string;
+}
+
+interface ExistingTreePoint {
+  id: string;
+  tree_id: string;
+  type: string;
+  latitude: number;
+  longitude: number;
+  is_affected?: boolean;
+  farm_location?: string | null;
 }
 
 type GeoStatus = "idle" | "loading" | "error";
@@ -65,6 +76,9 @@ const INITIAL_FORM: FormData = {
   note: "",
   farm_location: "",
 };
+
+// Types that should NOT show variety/variety-photos sections
+const TYPES_WITHOUT_VARIETY: TreeType[] = ["plant", "regrown", "dead"];
 
 /**
  * Uploads a single file to the Supabase `tree-images` storage bucket.
@@ -93,6 +107,30 @@ async function uploadFile(
   } = supabase.storage.from("tree-images").getPublicUrl(path);
 
   return publicUrl;
+}
+
+/**
+ * Generates the next tree_id based on farm_location.
+ * Attuvampatti → A-001, A-002, ...
+ * Gundupatti   → G-001, G-002, ...
+ */
+async function generateTreeId(farmLocation: string): Promise<string> {
+  const prefix = farmLocation === "Gundupatti" ? "G" : "A";
+  const pattern = `${prefix}-%`;
+
+  // Count existing trees with this prefix
+  const { count, error } = await supabase
+    .from("trees")
+    .select("*", { count: "exact", head: true })
+    .like("tree_id", pattern);
+
+  if (error) {
+    console.error("Failed to count trees for ID generation:", error);
+  }
+
+  const nextNum = (count ?? 0) + 1;
+  const padded = nextNum.toString().padStart(3, "0");
+  return `${prefix}-${padded}`;
 }
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -245,6 +283,12 @@ export default function RegisterPage() {
     msg: string;
   } | null>(null);
 
+  // Auto-generated tree ID display
+  const [generatedId, setGeneratedId] = useState("");
+
+  // Existing registered trees for map display
+  const [existingTrees, setExistingTrees] = useState<ExistingTreePoint[]>([]);
+
   // Variety images state (multiple files)
   const [varietyFiles, setVarietyFiles] = useState<File[]>([]);
   const [varietyPreviews, setVarietyPreviews] = useState<string[]>([]);
@@ -265,6 +309,42 @@ export default function RegisterPage() {
   const [cameraModalTarget, setCameraModalTarget] = useState<
     "variety" | "photo" | null
   >(null);
+
+  // ─── Fetch existing trees for map display ──────────────────────────────
+
+  useEffect(() => {
+    async function fetchExistingTrees() {
+      const { data } = await supabase
+        .from("trees")
+        .select("id, tree_id, type, latitude, longitude, is_affected, farm_location");
+      if (data) {
+        setExistingTrees(data as ExistingTreePoint[]);
+      }
+    }
+    fetchExistingTrees();
+  }, []);
+
+  // ─── Auto-generate tree ID when farm_location changes ──────────────────
+
+  useEffect(() => {
+    if (!form.farm_location) {
+      setGeneratedId("");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function genId() {
+      const id = await generateTreeId(form.farm_location);
+      if (!cancelled) {
+        setGeneratedId(id);
+        setForm((prev) => ({ ...prev, tree_id: id }));
+      }
+    }
+
+    genId();
+    return () => { cancelled = true; };
+  }, [form.farm_location]);
 
   // ─── Field updater ──────────────────────────────────────────────────────
 
@@ -453,26 +533,30 @@ export default function RegisterPage() {
     setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ─── Camera Modal Capture Callback ──────────────────────────────────────
+  // ─── Camera Modal Capture Callback (now receives File[]) ────────────────
 
   const handleCameraCapture = useCallback(
-    (file: File) => {
+    (files: File[]) => {
       if (cameraModalTarget === "variety") {
-        addVarietyFiles([file]);
+        addVarietyFiles(files);
       } else if (cameraModalTarget === "photo") {
-        addPhotoFiles([file]);
+        addPhotoFiles(files);
       }
       setCameraModalTarget(null);
     },
     [cameraModalTarget, addVarietyFiles, addPhotoFiles]
   );
 
+  // ─── Whether variety & status sections should be shown ───────────────────
+
+  const showVarietySection = form.type !== "" && !TYPES_WITHOUT_VARIETY.includes(form.type);
+  const showStatusSection = form.type !== "dead";
+
   // ─── Validation ─────────────────────────────────────────────────────────
 
   const validate = (): boolean => {
     const errs: FormErrors = {};
     if (!form.farm_location) errs.farm_location = "Farm location is required.";
-    if (!form.tree_id.trim()) errs.tree_id = "Tree ID is required.";
     if (!form.type) errs.type = "Type is required.";
     if (!form.latitude.trim()) {
       errs.latitude = "Latitude is required.";
@@ -501,11 +585,13 @@ export default function RegisterPage() {
     setSubmitErrorMsg("");
 
     try {
-      // 1. Upload all variety images if provided
+      // 1. Upload all variety images if provided (only if variety section visible)
       const variety_image_urls: string[] = [];
-      for (let i = 0; i < varietyFiles.length; i++) {
-        const url = await uploadFile(varietyFiles[i], "variety", i);
-        variety_image_urls.push(url);
+      if (showVarietySection) {
+        for (let i = 0; i < varietyFiles.length; i++) {
+          const url = await uploadFile(varietyFiles[i], "variety", i);
+          variety_image_urls.push(url);
+        }
       }
 
       // 2. Upload all photo images
@@ -515,19 +601,22 @@ export default function RegisterPage() {
         image_urls.push(url);
       }
 
-      // 3. Insert record into Supabase
+      // 3. Re-generate tree_id to avoid race conditions
+      const finalTreeId = await generateTreeId(form.farm_location);
+
+      // 4. Insert record into Supabase
       setSubmitPhase("saving");
       const { error: insertError } = await supabase.from("trees").insert({
-        tree_id: form.tree_id.trim(),
+        tree_id: finalTreeId,
         type: form.type,
-        variety: form.variety.trim() || null,
+        variety: showVarietySection ? (form.variety.trim() || null) : null,
         variety_image_url:
           variety_image_urls.length > 0 ? variety_image_urls.join(",") : null,
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
-        is_fruiting: form.is_fruiting,
-        is_affected: form.is_affected,
-        is_pruned: form.is_pruned,
+        is_fruiting: showStatusSection ? form.is_fruiting : false,
+        is_affected: showStatusSection ? form.is_affected : false,
+        is_pruned: showStatusSection ? form.is_pruned : false,
         note: form.note.trim() || null,
         farm_location: form.farm_location,
         image_urls,
@@ -541,12 +630,19 @@ export default function RegisterPage() {
       setSubmitPhase("success");
       setSubmitResult({
         ok: true,
-        msg: "Tree/plant registered successfully!",
+        msg: `Registered successfully as ${finalTreeId}!`,
       });
       setForm(INITIAL_FORM);
+      setGeneratedId("");
       clearVarietyFiles();
       setPhotoFiles([]);
       setPhotoPreviews([]);
+
+      // Refresh existing trees on map
+      const { data } = await supabase
+        .from("trees")
+        .select("id, tree_id, type, latitude, longitude, is_affected, farm_location");
+      if (data) setExistingTrees(data as ExistingTreePoint[]);
     } catch (err) {
       setSubmitPhase("error");
       const msg = err instanceof Error ? err.message : "An unknown error occurred.";
@@ -619,51 +715,58 @@ export default function RegisterPage() {
             )}
           </div>
 
-          {/* ── Tree ID ── */}
+          {/* ── Auto-Generated Tree ID (read-only display) ── */}
           <div>
-            <SectionLabel required>Tree ID</SectionLabel>
-            <input
-              type="text"
-              value={form.tree_id}
-              onChange={(e) => updateField("tree_id", e.target.value)}
-              placeholder="e.g. T-001"
-              className="w-full px-4 py-3 rounded-xl text-sm transition-all"
+            <SectionLabel hint="Auto-generated">Tree ID</SectionLabel>
+            <div
+              className="w-full px-4 py-3 rounded-xl text-sm font-mono"
               style={{
                 background: "var(--bg-input)",
-                border: errors.tree_id
-                  ? "1px solid var(--danger)"
-                  : "1px solid var(--border-primary)",
-                color: "var(--text-primary)",
+                border: "1px solid var(--border-primary)",
+                color: generatedId ? "var(--text-primary)" : "var(--text-tertiary)",
+                opacity: generatedId ? 1 : 0.6,
               }}
-            />
-            {errors.tree_id && (
-              <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
-                {errors.tree_id}
-              </p>
-            )}
+            >
+              {generatedId || "Select a location first…"}
+            </div>
           </div>
 
           {/* ── Type ── */}
           <div>
             <SectionLabel required>Type</SectionLabel>
-            <select
-              value={form.type}
-              onChange={(e) =>
-                updateField("type", e.target.value as FormData["type"])
-              }
-              className="w-full px-4 py-3 rounded-xl text-sm transition-all appearance-none cursor-pointer"
-              style={{
-                background: "var(--bg-input)",
-                border: errors.type
-                  ? "1px solid var(--danger)"
-                  : "1px solid var(--border-primary)",
-                color: form.type ? "var(--text-primary)" : "var(--text-tertiary)",
-              }}
-            >
-              <option value="">Select type…</option>
-              <option value="tree">Tree</option>
-              <option value="plant">Plant</option>
-            </select>
+            <div className="grid grid-cols-2 gap-2">
+              {(["tree", "plant", "regrown", "dead"] as const).map((t) => {
+                const isSelected = form.type === t;
+                const colorMap: Record<string, { border: string; bg: string; text: string; dot: string }> = {
+                  tree: { border: "var(--accent)", bg: "rgba(34,197,94,0.12)", text: "var(--accent)", dot: "#22c55e" },
+                  plant: { border: "#2dd4bf", bg: "rgba(45,212,191,0.12)", text: "#2dd4bf", dot: "#86efac" },
+                  regrown: { border: "#facc15", bg: "rgba(250,204,21,0.12)", text: "#facc15", dot: "#facc15" },
+                  dead: { border: "#78716c", bg: "rgba(120,113,108,0.12)", text: "#a8a29e", dot: "#78716c" },
+                };
+                const c = colorMap[t];
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => updateField("type", t)}
+                    className="py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.98] capitalize"
+                    style={{
+                      background: isSelected ? c.bg : "var(--bg-input)",
+                      border: isSelected
+                        ? `1.5px solid ${c.border}`
+                        : "1px solid var(--border-primary)",
+                      color: isSelected ? c.text : "var(--text-secondary)",
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: isSelected ? c.dot : "var(--text-tertiary)" }}
+                    />
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
             {errors.type && (
               <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
                 {errors.type}
@@ -671,106 +774,110 @@ export default function RegisterPage() {
             )}
           </div>
 
-          {/* ── Variety ── */}
-          <div>
-            <SectionLabel>Variety</SectionLabel>
-            <input
-              type="text"
-              value={form.variety}
-              onChange={(e) => updateField("variety", e.target.value)}
-              placeholder="e.g. Mango, Tulsi, Neem…"
-              className="w-full px-4 py-3 rounded-xl text-sm transition-all"
-              style={{
-                background: "var(--bg-input)",
-                border: "1px solid var(--border-primary)",
-                color: "var(--text-primary)",
-              }}
-            />
-          </div>
-
-          {/* ── Variety Images ── */}
-          <div className="space-y-2.5">
-            <SectionLabel hint={varietyPreviews.length > 0 ? `${varietyPreviews.length} file${varietyPreviews.length > 1 ? "s" : ""}` : undefined}>
-              Variety Photos
-            </SectionLabel>
-
-            {/* Hidden native inputs */}
-            <input
-              ref={varietyGalleryInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handleVarietyFilesInput}
-            />
-            <input
-              ref={varietyCameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleVarietyFilesInput}
-            />
-
-            {/* Action buttons */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setCameraModalTarget("variety")}
-                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          {/* ── Variety (hidden for plant/regrown) ── */}
+          {showVarietySection && (
+            <div>
+              <SectionLabel>Variety</SectionLabel>
+              <input
+                type="text"
+                value={form.variety}
+                onChange={(e) => updateField("variety", e.target.value)}
+                placeholder="e.g. Mango, Tulsi, Neem…"
+                className="w-full px-4 py-3 rounded-xl text-sm transition-all"
                 style={{
                   background: "var(--bg-input)",
                   border: "1px solid var(--border-primary)",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-primary)",
                 }}
-              >
-                <IconCamera size={14} />
-                Take Photo
-              </button>
-
-              <button
-                type="button"
-                onClick={() => varietyGalleryInputRef.current?.click()}
-                className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                style={{
-                  background: "var(--bg-input)",
-                  border: "1px solid var(--border-primary)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <IconUpload size={14} />
-                Upload Files
-              </button>
+              />
             </div>
+          )}
 
-            {/* Variety Photos Preview Grid */}
-            {varietyPreviews.length > 0 && (
-              <div className="mt-2 grid grid-cols-4 gap-2">
-                {varietyPreviews.map((src, i) => (
-                  <div key={i} className="relative aspect-square group">
-                    <img
-                      src={src}
-                      alt={`Variety photo ${i + 1}`}
-                      className="w-full h-full object-cover rounded-lg"
-                      style={{ border: "1px solid var(--border-primary)" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeVarietyFile(i)}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{
-                        background: "var(--danger)",
-                        color: "#fff",
-                      }}
-                      aria-label="Remove photo"
-                    >
-                      <IconX size={10} />
-                    </button>
-                  </div>
-                ))}
+          {/* ── Variety Images (hidden for plant/regrown) ── */}
+          {showVarietySection && (
+            <div className="space-y-2.5">
+              <SectionLabel hint={varietyPreviews.length > 0 ? `${varietyPreviews.length} file${varietyPreviews.length > 1 ? "s" : ""}` : undefined}>
+                Variety Photos
+              </SectionLabel>
+
+              {/* Hidden native inputs */}
+              <input
+                ref={varietyGalleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleVarietyFilesInput}
+              />
+              <input
+                ref={varietyCameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleVarietyFilesInput}
+              />
+
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCameraModalTarget("variety")}
+                  className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                  style={{
+                    background: "var(--bg-input)",
+                    border: "1px solid var(--border-primary)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <IconCamera size={14} />
+                  Take Photo
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => varietyGalleryInputRef.current?.click()}
+                  className="py-2.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                  style={{
+                    background: "var(--bg-input)",
+                    border: "1px solid var(--border-primary)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <IconUpload size={14} />
+                  Upload Files
+                </button>
               </div>
-            )}
-          </div>
+
+              {/* Variety Photos Preview Grid */}
+              {varietyPreviews.length > 0 && (
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {varietyPreviews.map((src, i) => (
+                    <div key={i} className="relative aspect-square group">
+                      <img
+                        src={src}
+                        alt={`Variety photo ${i + 1}`}
+                        className="w-full h-full object-cover rounded-lg"
+                        style={{ border: "1px solid var(--border-primary)" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeVarietyFile(i)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md"
+                        style={{
+                          background: "var(--danger)",
+                          color: "#fff",
+                        }}
+                        aria-label="Remove photo"
+                      >
+                        <IconX size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Location Section ── */}
           <div className="space-y-2.5">
@@ -820,11 +927,12 @@ export default function RegisterPage() {
               </p>
             )}
 
-            {/* Interactive Leaflet Satellite Map Picker */}
+            {/* Interactive Leaflet Satellite Map Picker — now with existing tree markers */}
             <LocationPickerMap
               lat={latNum}
               lng={lngNum}
               onLocationSelect={handleMapLocationSelect}
+              existingTrees={existingTrees}
             />
 
             {/* Lat / Long Numeric Inputs */}
@@ -883,25 +991,27 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* ── Boolean Toggles ── */}
-          <div className="space-y-2">
-            <SectionLabel>Status</SectionLabel>
-            <Toggle
-              label="Fruiting"
-              checked={form.is_fruiting}
-              onChange={(v) => updateField("is_fruiting", v)}
-            />
-            <Toggle
-              label="Affected"
-              checked={form.is_affected}
-              onChange={(v) => updateField("is_affected", v)}
-            />
-            <Toggle
-              label="Pruned"
-              checked={form.is_pruned}
-              onChange={(v) => updateField("is_pruned", v)}
-            />
-          </div>
+          {/* ── Boolean Toggles (hidden for dead type) ── */}
+          {showStatusSection && (
+            <div className="space-y-2">
+              <SectionLabel>Status</SectionLabel>
+              <Toggle
+                label="Fruiting"
+                checked={form.is_fruiting}
+                onChange={(v) => updateField("is_fruiting", v)}
+              />
+              <Toggle
+                label="Affected"
+                checked={form.is_affected}
+                onChange={(v) => updateField("is_affected", v)}
+              />
+              <Toggle
+                label="Pruned"
+                checked={form.is_pruned}
+                onChange={(v) => updateField("is_pruned", v)}
+              />
+            </div>
+          )}
 
           {/* ── Note ── */}
           <div>
@@ -989,7 +1099,7 @@ export default function RegisterPage() {
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md"
                       style={{
                         background: "var(--danger)",
                         color: "#fff",
@@ -1030,7 +1140,7 @@ export default function RegisterPage() {
         </form>
       </main>
 
-      {/* ── WebRTC Live Camera Modal ── */}
+      {/* ── WebRTC Live Camera Modal (multi-capture) ── */}
       <CameraCaptureModal
         isOpen={cameraModalTarget !== null}
         onClose={() => setCameraModalTarget(null)}

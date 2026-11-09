@@ -174,6 +174,20 @@ export default function MapPage() {
         <div className="flex items-center gap-2.5">
           <span
             className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#facc15", boxShadow: "0 0 6px rgba(250, 204, 21, 0.4)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>Regrown</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
+            style={{ background: "#78716c", boxShadow: "0 0 6px rgba(120, 113, 108, 0.4)" }}
+          />
+          <span className="text-xs" style={{ color: "var(--text-primary)" }}>Dead</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shadow-sm"
             style={{ background: "#ef4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.4)" }}
           />
           <span className="text-xs" style={{ color: "var(--text-primary)" }}>Affected</span>

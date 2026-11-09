@@ -72,6 +72,8 @@ const TILE_PROVIDERS: Record<MapStyle, TileProvider> = {
 
 function getMarkerColor(record: TreeRecord): string {
   if (record.is_affected) return "#ef4444";
+  if (record.type === "dead") return "#78716c";
+  if (record.type === "regrown") return "#facc15";
   if (record.type === "plant") return "#86efac";
   return "#22c55e";
 }
@@ -113,11 +115,17 @@ const ICON_TREE = createDotIcon("#22c55e", false);
 const ICON_TREE_SEL = createDotIcon("#22c55e", true);
 const ICON_PLANT = createDotIcon("#86efac", false);
 const ICON_PLANT_SEL = createDotIcon("#86efac", true);
+const ICON_REGROWN = createDotIcon("#facc15", false);
+const ICON_REGROWN_SEL = createDotIcon("#facc15", true);
+const ICON_DEAD = createDotIcon("#78716c", false);
+const ICON_DEAD_SEL = createDotIcon("#78716c", true);
 const ICON_AFFECTED = createDotIcon("#ef4444", false);
 const ICON_AFFECTED_SEL = createDotIcon("#ef4444", true);
 
 function getMarkerIcon(record: TreeRecord, isSelected: boolean): L.DivIcon {
   if (record.is_affected) return isSelected ? ICON_AFFECTED_SEL : ICON_AFFECTED;
+  if (record.type === "dead") return isSelected ? ICON_DEAD_SEL : ICON_DEAD;
+  if (record.type === "regrown") return isSelected ? ICON_REGROWN_SEL : ICON_REGROWN;
   if (record.type === "plant") return isSelected ? ICON_PLANT_SEL : ICON_PLANT;
   return isSelected ? ICON_TREE_SEL : ICON_TREE;
 }

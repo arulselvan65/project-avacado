@@ -7,7 +7,7 @@ export interface TreeRecord {
   id: string; // uuid
   created_at: string; // timestamptz (ISO string)
   tree_id: string;
-  type: "tree" | "plant";
+  type: "tree" | "plant" | "regrown" | "dead";
   variety: string | null;
   variety_image_url: string | null;
   latitude: number;

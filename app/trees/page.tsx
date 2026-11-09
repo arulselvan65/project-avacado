@@ -16,7 +16,7 @@ export default function TreesListPage() {
   // Search, filter, and sorting state
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState<"ALL" | "Attuvampatti" | "Gundupatti">("ALL");
-  const [typeFilter, setTypeFilter] = useState<"ALL" | "tree" | "plant">("ALL");
+  const [typeFilter, setTypeFilter] = useState<"ALL" | "tree" | "plant" | "regrown" | "dead">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "fruiting" | "affected" | "pruned">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "id_asc" | "id_desc">("newest");
 
@@ -58,11 +58,24 @@ export default function TreesListPage() {
     fetchTrees();
   }, [fetchTrees]);
 
+  // Read URL query parameter if present (e.g. ?search=A-001 or ?id=A-001)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const search = params.get("search") || params.get("id");
+      if (search) {
+        setSearchQuery(search);
+      }
+    }
+  }, []);
+
   // Statistics
   const stats = useMemo(() => {
     const total = trees.length;
     const treeCount = trees.filter((t) => t.type === "tree").length;
     const plantCount = trees.filter((t) => t.type === "plant").length;
+    const regrownCount = trees.filter((t) => t.type === "regrown").length;
+    const deadCount = trees.filter((t) => t.type === "dead").length;
     const fruitingCount = trees.filter((t) => t.is_fruiting).length;
     const affectedCount = trees.filter((t) => t.is_affected).length;
     const prunedCount = trees.filter((t) => t.is_pruned).length;
@@ -73,6 +86,8 @@ export default function TreesListPage() {
       total,
       treeCount,
       plantCount,
+      regrownCount,
+      deadCount,
       fruitingCount,
       affectedCount,
       prunedCount,
@@ -433,17 +448,17 @@ export default function TreesListPage() {
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mr-1">
                 Type:
               </span>
-              {(["ALL", "tree", "plant"] as const).map((t) => (
+              {(["ALL", "tree", "plant", "regrown", "dead"] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTypeFilter(t)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-all ${
                     typeFilter === t
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-white/5 text-zinc-400 hover:bg-white/10"
                   }`}
                 >
-                  {t === "ALL" ? "All Types" : t === "tree" ? "Tree" : "Plant"}
+                  {t === "ALL" ? "All Types" : t}
                 </button>
               ))}
             </div>
@@ -569,13 +584,17 @@ export default function TreesListPage() {
                           </span>
 
                           <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider capitalize ${
                               tree.type === "plant"
                                 ? "bg-teal-950/80 text-teal-300 border border-teal-800/60"
+                                : tree.type === "regrown"
+                                ? "bg-yellow-950/80 text-yellow-300 border border-yellow-800/60"
+                                : tree.type === "dead"
+                                ? "bg-stone-900 text-stone-400 border border-stone-700/60"
                                 : "bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
                             }`}
                           >
-                            {tree.type === "plant" ? "Plant" : "Tree"}
+                            {tree.type}
                           </span>
 
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-300 bg-white/5 border border-white/10">
