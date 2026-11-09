@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import Navbar from "@/app/components/Navbar";
-import type { TreeReviewRecord, TreeReviewItem } from "@/lib/reviewTypes";
+import {
+  type TreeReviewRecord,
+  type TreeReviewItem,
+  getAffectedPhotoUrls,
+} from "@/lib/reviewTypes";
 import { getReviewById } from "@/lib/reviewStorage";
 import { downloadAffectedTreesPdf } from "@/lib/generatePdfReport";
 
@@ -363,48 +367,114 @@ export default function ReviewReportPage() {
 
                     {/* 2. Original Tree Photograph (from Main Database) */}
                     <div className="space-y-1.5">
-                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                          <circle cx="12" cy="13" r="4" />
-                        </svg>
-                        <span>2. Tree Photograph (Main DB)</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                          <span>2. Tree Photo (Main DB)</span>
+                        </span>
+                        {Array.isArray(tree.all_tree_photos) && tree.all_tree_photos.length > 1 && (
+                          <span className="text-[10px] text-zinc-400">
+                            {tree.all_tree_photos.length} photos
+                          </span>
+                        )}
                       </span>
                       <div className="h-48 rounded-xl overflow-hidden border border-zinc-700/60 bg-zinc-900 flex items-center justify-center">
-                        {tree.original_photo_url ? (
-                          <img
-                            src={tree.original_photo_url}
-                            alt={`Tree ${tree.tree_id}`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="text-center text-zinc-500 text-xs p-4">
-                            No photograph stored in main database
-                          </div>
-                        )}
+                        {(() => {
+                          const dbPhotos = Array.isArray(tree.all_tree_photos) && tree.all_tree_photos.length > 0
+                            ? tree.all_tree_photos
+                            : tree.original_photo_url
+                            ? [tree.original_photo_url]
+                            : [];
+                          if (dbPhotos.length === 0) {
+                            return (
+                              <div className="text-center text-zinc-500 text-xs p-4">
+                                No photograph stored in main database
+                              </div>
+                            );
+                          }
+                          if (dbPhotos.length === 1) {
+                            return (
+                              <img
+                                src={dbPhotos[0]}
+                                alt={`Tree ${tree.tree_id}`}
+                                className="w-full h-full object-cover"
+                              />
+                            );
+                          }
+                          return (
+                            <div className="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-thin">
+                              {dbPhotos.map((url, pIdx) => (
+                                <div key={pIdx} className="min-w-full w-full h-full shrink-0 snap-center relative">
+                                  <img
+                                    src={url}
+                                    alt={`Tree ${tree.tree_id} #${pIdx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-black/80 text-white">
+                                    {pIdx + 1}/{dbPhotos.length}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
 
                     {/* 3. Photograph of Affected Point */}
                     <div className="space-y-1.5">
-                      <span className="text-xs font-bold uppercase tracking-wider text-red-400 flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                        </svg>
-                        <span>3. Affected Point Photo</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-red-400 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                          </svg>
+                          <span>3. Affected Point Photo</span>
+                        </span>
+                        {getAffectedPhotoUrls(tree).length > 1 && (
+                          <span className="text-[10px] text-zinc-400">
+                            {getAffectedPhotoUrls(tree).length} photos
+                          </span>
+                        )}
                       </span>
                       <div className="h-48 rounded-xl overflow-hidden border border-red-500/40 bg-zinc-900 flex items-center justify-center relative">
-                        {tree.affected_photo_url ? (
-                          <img
-                            src={tree.affected_photo_url}
-                            alt={`Affected point on ${tree.tree_id}`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="text-center text-zinc-500 text-xs p-4">
-                            No close-up photograph captured of affected point
-                          </div>
-                        )}
+                        {(() => {
+                          const affectedUrls = getAffectedPhotoUrls(tree);
+                          if (affectedUrls.length === 0) {
+                            return (
+                              <div className="text-center text-zinc-500 text-xs p-4">
+                                No close-up photograph captured of affected point
+                              </div>
+                            );
+                          }
+                          if (affectedUrls.length === 1) {
+                            return (
+                              <img
+                                src={affectedUrls[0]}
+                                alt={`Affected point on ${tree.tree_id}`}
+                                className="w-full h-full object-cover"
+                              />
+                            );
+                          }
+                          return (
+                            <div className="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-thin">
+                              {affectedUrls.map((url, aIdx) => (
+                                <div key={aIdx} className="min-w-full w-full h-full shrink-0 snap-center relative">
+                                  <img
+                                    src={url}
+                                    alt={`Affected point #${aIdx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-black/80 text-white">
+                                    {aIdx + 1}/{affectedUrls.length}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

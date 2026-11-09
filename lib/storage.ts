@@ -10,11 +10,12 @@ export async function uploadTreeImage(
   index?: number
 ): Promise<string> {
   const timestamp = Date.now();
+  const rand = Math.random().toString(36).substring(2, 7);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path =
     index !== undefined
-      ? `${pathPrefix}/${timestamp}-${index}-${safeName}`
-      : `${pathPrefix}/${timestamp}-${safeName}`;
+      ? `${pathPrefix}/${timestamp}-${index}-${rand}-${safeName}`
+      : `${pathPrefix}/${timestamp}-${rand}-${safeName}`;
 
   const { error } = await supabase.storage
     .from("tree-images")

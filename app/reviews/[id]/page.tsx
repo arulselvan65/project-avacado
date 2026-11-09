@@ -6,9 +6,10 @@ import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Navbar from "@/app/components/Navbar";
 import CameraCaptureModal from "@/app/register/CameraCaptureModal";
-import type {
-  TreeReviewRecord,
-  TreeReviewItem,
+import {
+  type TreeReviewRecord,
+  type TreeReviewItem,
+  getAffectedPhotoUrls,
 } from "@/lib/reviewTypes";
 import {
   getReviewById,
@@ -172,13 +173,24 @@ export default function ReviewExecutionPage() {
     await saveReviewRecord(updatedReview);
   };
 
-  // Remove affected point photo
-  const removeAffectedPhoto = async (treeId: string) => {
+  // Remove affected point photo (all or a specific index)
+  const removeAffectedPhoto = async (treeId: string, photoIndex?: number) => {
     if (!review) return;
 
     const updatedItems = review.items.map((item) => {
       if (item.tree_id === treeId) {
-        return { ...item, affected_photo_url: null };
+        const existing = getAffectedPhotoUrls(item);
+        let updatedUrls: string[];
+        if (photoIndex !== undefined) {
+          updatedUrls = existing.filter((_, idx) => idx !== photoIndex);
+        } else {
+          updatedUrls = [];
+        }
+        return {
+          ...item,
+          affected_photo_urls: updatedUrls,
+          affected_photo_url: updatedUrls[0] || null,
+        };
       }
       return item;
     });
@@ -198,7 +210,7 @@ export default function ReviewExecutionPage() {
     await saveReviewRecord(updatedReview);
   };
 
-  // Handle Affected Point Camera Capture
+  // Handle Affected Point Camera Capture (Multiple Photos supported)
   const handleAffectedCameraCapture = async (files: File[]) => {
     if (!cameraActiveTreeId || files.length === 0 || !review) return;
     const targetId = cameraActiveTreeId;
@@ -206,11 +218,21 @@ export default function ReviewExecutionPage() {
     setUploadingTreeId(targetId);
 
     try {
-      const publicUrl = await uploadAffectedPointPhoto(files[0], review.id, targetId);
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const publicUrl = await uploadAffectedPointPhoto(files[i], review.id, targetId, i);
+        uploadedUrls.push(publicUrl);
+      }
 
       const updatedItems = review.items.map((item) => {
         if (item.tree_id === targetId) {
-          return { ...item, affected_photo_url: publicUrl };
+          const existing = getAffectedPhotoUrls(item);
+          const finalUrls = [...existing, ...uploadedUrls];
+          return {
+            ...item,
+            affected_photo_urls: finalUrls,
+            affected_photo_url: finalUrls[0] || null,
+          };
         }
         return item;
       });
@@ -235,21 +257,31 @@ export default function ReviewExecutionPage() {
     }
   };
 
-  // Handle Affected Point File Input
+  // Handle Affected Point File Input (Multiple Photos supported)
   const handleAffectedFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !targetFileInputTreeId || !review) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0 || !targetFileInputTreeId || !review) return;
     const targetId = targetFileInputTreeId;
     setTargetFileInputTreeId(null);
     setUploadingTreeId(targetId);
     e.target.value = "";
 
     try {
-      const publicUrl = await uploadAffectedPointPhoto(file, review.id, targetId);
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const publicUrl = await uploadAffectedPointPhoto(files[i], review.id, targetId, i);
+        uploadedUrls.push(publicUrl);
+      }
 
       const updatedItems = review.items.map((item) => {
         if (item.tree_id === targetId) {
-          return { ...item, affected_photo_url: publicUrl };
+          const existing = getAffectedPhotoUrls(item);
+          const finalUrls = [...existing, ...uploadedUrls];
+          return {
+            ...item,
+            affected_photo_urls: finalUrls,
+            affected_photo_url: finalUrls[0] || null,
+          };
         }
         return item;
       });
@@ -494,6 +526,7 @@ export default function ReviewExecutionPage() {
       <input
         ref={affectedFileInputRef}
         type="file"
+        multiple
         accept="image/*"
         className="hidden"
         onChange={handleAffectedFileInput}
@@ -1054,35 +1087,59 @@ export default function ReviewExecutionPage() {
                 </div>
 
                 {/* Upload indicator / Preview */}
-                {uploadingTreeId === selectedTree.tree_id ? (
+                {uploadingTreeId === selectedTree.tree_id && (
                   <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-2 text-xs text-zinc-400">
                     <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Uploading affected point photograph…</span>
+                    <span>Uploading affected point photograph(s)…</span>
                   </div>
-                ) : selectedTree.affected_photo_url ? (
-                  <div className="relative inline-block rounded-xl border-2 border-red-500/40 overflow-hidden">
-                    <img
-                      src={selectedTree.affected_photo_url}
-                      alt="Affected point"
-                      className="w-36 h-28 object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeAffectedPhoto(selectedTree.tree_id)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md"
-                      title="Remove photo"
-                    >
-                      ✕
-                    </button>
-                    <span className="absolute bottom-0 inset-x-0 bg-red-950/90 text-[8px] text-red-200 font-bold text-center py-0.5">
-                      AFFECTED POINT ATTACHED
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-zinc-400">
-                    Please take or upload a photograph of the affected point for the PDF defect report.
-                  </p>
                 )}
+
+                {(() => {
+                  const affectedPhotos = getAffectedPhotoUrls(selectedTree);
+                  if (affectedPhotos.length === 0) {
+                    return (
+                      <p className="text-[11px] text-zinc-400">
+                        Please take or upload photograph(s) of the affected point for the PDF defect report.
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                        <span className="font-semibold text-red-300">
+                          Attached Photos ({affectedPhotos.length})
+                        </span>
+                        <span className="text-[10px] text-zinc-500">Tap ✕ to remove</span>
+                      </div>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {affectedPhotos.map((url, pIdx) => (
+                          <div
+                            key={pIdx}
+                            className="relative shrink-0 w-24 h-24 rounded-xl border-2 border-red-500/40 overflow-hidden group bg-zinc-900 shadow-md"
+                          >
+                            <img
+                              src={url}
+                              alt={`Affected point ${pIdx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeAffectedPhoto(selectedTree.tree_id, pIdx)}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-xs shadow-md hover:bg-red-500 active:scale-90 transition-transform"
+                              title="Remove photo"
+                            >
+                              ✕
+                            </button>
+                            <span className="absolute bottom-0 inset-x-0 bg-red-950/90 text-[8px] text-red-200 font-bold text-center py-0.5">
+                              #{pIdx + 1}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Defect Remarks */}
                 <div>

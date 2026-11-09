@@ -37,11 +37,13 @@ export function calculateReviewMetrics(items: TreeReviewItem[]) {
 export async function uploadAffectedPointPhoto(
   file: File,
   reviewId: string,
-  treeId: string
+  treeId: string,
+  index: number = 0
 ): Promise<string> {
   const timestamp = Date.now();
+  const rand = Math.random().toString(36).substring(2, 7);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `reviews/${reviewId}/${treeId}_affected_${timestamp}_${safeName}`;
+  const path = `reviews/${reviewId}/${treeId}_affected_${timestamp}_${index}_${rand}_${safeName}`;
 
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)

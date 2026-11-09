@@ -17,9 +17,30 @@ export interface TreeReviewItem {
   
   // Review specific details:
   status: ReviewItemStatus; // "ok" | "affected" | null
-  affected_photo_url?: string | null; // photo of the affected point
+  affected_photo_url?: string | null; // photo of the affected point (primary or backward compatible)
+  affected_photo_urls?: string[]; // multiple photos of the affected point
   affected_notes?: string | null; // notes regarding the affected point
   reviewed_at?: string | null; // ISO string
+}
+
+/**
+ * Returns all affected photo URLs for an item as an array.
+ * Handles both `affected_photo_urls` array and `affected_photo_url` string.
+ */
+export function getAffectedPhotoUrls(item: {
+  affected_photo_url?: string | null;
+  affected_photo_urls?: string[];
+}): string[] {
+  if (Array.isArray(item.affected_photo_urls) && item.affected_photo_urls.length > 0) {
+    return item.affected_photo_urls.filter(Boolean);
+  }
+  if (item.affected_photo_url) {
+    return item.affected_photo_url
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 export type ReviewStatus = "in_progress" | "completed";

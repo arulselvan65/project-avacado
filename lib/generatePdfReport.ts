@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
-import type { TreeReviewRecord } from "./reviewTypes";
+import { type TreeReviewRecord, getAffectedPhotoUrls } from "./reviewTypes";
 
 /**
  * Image metadata interface for aspect-ratio preserved rendering.
@@ -468,7 +468,7 @@ export async function downloadAffectedTreesPdf(
             });
           }
         }
-      } catch {}
+      } catch { }
     }
 
     if (allDbPhotos.length === 0 && tree.original_photo_url) {
@@ -476,9 +476,10 @@ export async function downloadAffectedTreesPdf(
     }
 
     // ─── Load All Image Assets in Parallel ─────────────────────────────────
-    const [mapDataUrl, affImgInfo] = await Promise.all([
+    const affectedPhotoUrls = getAffectedPhotoUrls(tree);
+    const [mapDataUrl, ...affectedImgInfos] = await Promise.all([
       generateZoomedMapSnapshot(tree.latitude, tree.longitude),
-      tree.affected_photo_url ? loadImageInfo(tree.affected_photo_url) : Promise.resolve(null),
+      ...affectedPhotoUrls.map((u) => loadImageInfo(u)),
     ]);
 
     // Build the list of evidence photos
@@ -492,13 +493,24 @@ export async function downloadAffectedTreesPdf(
       fallbackLabel: `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`,
     });
 
-    // 2. Affected Point Defect Photo (Portrait 3:4)
-    photoItems.push({
-      title: "2. DEFECT CLOSE-UP",
-      isDefect: true,
-      imgInfo: affImgInfo,
-      fallbackLabel: "No close-up defect\nphoto attached",
-    });
+    // 2. Affected Point Defect Photo(s) (Portrait 3:4)
+    if (affectedImgInfos.length === 0) {
+      photoItems.push({
+        title: "2. DEFECT CLOSE-UP",
+        isDefect: true,
+        imgInfo: null,
+        fallbackLabel: "No close-up defect\nphoto attached",
+      });
+    } else {
+      for (let aIdx = 0; aIdx < affectedImgInfos.length; aIdx++) {
+        photoItems.push({
+          title: affectedImgInfos.length === 1 ? "2. DEFECT CLOSE-UP" : `2. DEFECT #${aIdx + 1}`,
+          isDefect: true,
+          imgInfo: affectedImgInfos[aIdx],
+          fallbackLabel: `Defect Photo #${aIdx + 1}`,
+        });
+      }
+    }
 
     // 3. Registered Database Photos (Portrait 3:4)
     for (let pIdx = 0; pIdx < allDbPhotos.length; pIdx++) {
@@ -590,7 +602,7 @@ export async function downloadAffectedTreesPdf(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(255, 255, 255);
-    doc.text("View on Dashboard ↗", btnX + btnW / 2, btnY + 5.7, { align: "center" });
+    doc.text("View Details", btnX + btnW / 2, btnY + 5.7, { align: "center" });
 
     // Active clickable hyperlink over button area
     doc.link(btnX, btnY, btnW, btnH, { url: treeLinkUrl });
