@@ -94,15 +94,17 @@ async function fetchTileImage(x: number, y: number, zoom: number): Promise<HTMLI
 
 /**
  * Generates a high-precision, zoomed-in (zoom 19) satellite map snapshot
- * where the tree coordinates are guaranteed to be in the exact center.
+ * in PORTRAIT (3:4) orientation matching camera photos, with the tree
+ * coordinates guaranteed to be in the exact center.
  */
 async function generateZoomedMapSnapshot(lat: number, lng: number): Promise<string | null> {
   if (typeof window === "undefined") return null;
 
   try {
     const canvas = document.createElement("canvas");
-    const canvasW = 600;
-    const canvasH = 450;
+    // 3:4 portrait canvas (450 x 600)
+    const canvasW = 450;
+    const canvasH = 600;
     canvas.width = canvasW;
     canvas.height = canvasH;
     const ctx = canvas.getContext("2d");
@@ -156,32 +158,32 @@ async function generateZoomedMapSnapshot(lat: number, lng: number): Promise<stri
     // Draw precision crosshairs and pin
     // 1. Radar pulse ring
     ctx.beginPath();
-    ctx.arc(cx, cy, 28, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 32, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(239, 68, 68, 0.22)";
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 20, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
     ctx.fill();
 
     // 2. Crosshair fine reticles
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(cx - 36, cy);
-    ctx.lineTo(cx - 12, cy);
-    ctx.moveTo(cx + 12, cy);
-    ctx.lineTo(cx + 36, cy);
-    ctx.moveTo(cx, cy - 36);
-    ctx.lineTo(cx, cy - 12);
-    ctx.moveTo(cx, cy + 12);
-    ctx.lineTo(cx, cy + 36);
+    ctx.moveTo(cx - 40, cy);
+    ctx.lineTo(cx - 14, cy);
+    ctx.moveTo(cx + 14, cy);
+    ctx.lineTo(cx + 40, cy);
+    ctx.moveTo(cx - 40, cy);
+    ctx.lineTo(cx - 14, cy);
+    ctx.moveTo(cx, cy + 14);
+    ctx.lineTo(cx, cy + 40);
     ctx.stroke();
 
     // 3. Pin drop needle & head
     ctx.beginPath();
-    ctx.arc(cx, cy - 12, 11, 0, Math.PI * 2);
+    ctx.arc(cx, cy - 14, 12, 0, Math.PI * 2);
     ctx.fillStyle = "#ef4444";
     ctx.fill();
     ctx.strokeStyle = "#ffffff";
@@ -190,32 +192,32 @@ async function generateZoomedMapSnapshot(lat: number, lng: number): Promise<stri
 
     // Inner white dot
     ctx.beginPath();
-    ctx.arc(cx, cy - 12, 4, 0, Math.PI * 2);
+    ctx.arc(cx, cy - 14, 4.5, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
 
     // Needle pointer triangle
     ctx.beginPath();
-    ctx.moveTo(cx - 5, cy - 3);
+    ctx.moveTo(cx - 6, cy - 4);
     ctx.lineTo(cx, cy);
-    ctx.lineTo(cx + 5, cy - 3);
+    ctx.lineTo(cx + 6, cy - 4);
     ctx.closePath();
     ctx.fillStyle = "#ef4444";
     ctx.fill();
 
     // Coordinate pill banner at bottom
-    ctx.fillStyle = "rgba(10, 12, 16, 0.9)";
+    ctx.fillStyle = "rgba(10, 12, 16, 0.92)";
     ctx.fillRect(0, canvasH - 36, canvasW, 36);
 
     ctx.fillStyle = "#38bdf8";
     ctx.font = "bold 13px sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText("SATELLITE ORCHARD VIEW (ZOOM 19)", 16, canvasH - 14);
+    ctx.fillText("SATELLITE ORCHARD (Z19)", 14, canvasH - 14);
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 13px monospace";
+    ctx.font = "bold 12px monospace";
     ctx.textAlign = "right";
-    ctx.fillText(`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`, canvasW - 16, canvasH - 14);
+    ctx.fillText(`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`, canvasW - 14, canvasH - 14);
 
     return canvas.toDataURL("image/jpeg", 0.95);
   } catch {
@@ -225,7 +227,7 @@ async function generateZoomedMapSnapshot(lat: number, lng: number): Promise<stri
 
 /**
  * Draws an image with perfect aspect ratio (no stretching or blurring)
- * inside a defined bounding box.
+ * inside a defined portrait bounding box.
  */
 function drawFittedImage(
   doc: jsPDF,
@@ -235,12 +237,12 @@ function drawFittedImage(
   boxW: number,
   boxH: number
 ) {
-  // Card frame
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
+  // Background card frame
+  doc.setFillColor(241, 245, 249); // slate-100
+  doc.setDrawColor(203, 213, 225); // slate-300
   doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, "FD");
 
-  const imgAspect = img.aspectRatio;
+  const imgAspect = img.aspectRatio; // width / height
   const boxAspect = boxW / boxH;
 
   let renderW = boxW;
@@ -259,6 +261,10 @@ function drawFittedImage(
   }
 
   doc.addImage(img.dataUrl, "JPEG", renderX, renderY, renderW, renderH, undefined, "FAST");
+
+  // Re-stroke bounding border for crisp definition
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, "D");
 }
 
 /**
@@ -277,7 +283,7 @@ function drawFallbackBox(
   doc.roundedRect(x, y, w, h, 2, 2, "FD");
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
 
   const lines = label.split("\n");
@@ -289,7 +295,20 @@ function drawFallbackBox(
 }
 
 /**
+ * Evidence photo descriptor for structured portrait layout.
+ */
+interface EvidencePhoto {
+  title: string;
+  isDefect?: boolean;
+  isMap?: boolean;
+  dataUrl?: string | null;
+  imgInfo?: ImageInfo | null;
+  fallbackLabel: string;
+}
+
+/**
  * Generates and downloads the comprehensive Affected Trees PDF Report.
+ * All photos are formatted in portrait orientation (3:4) matching smartphone field photography.
  */
 export async function downloadAffectedTreesPdf(
   review: TreeReviewRecord,
@@ -306,54 +325,62 @@ export async function downloadAffectedTreesPdf(
 
   const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
   const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
-  const margin = 14;
-  const contentWidth = pageWidth - margin * 2;
+  const margin = 12;
+  const contentWidth = pageWidth - margin * 2; // 186mm
 
   // ─── Header & Cover Section ───────────────────────────────────────────────
   doc.setFillColor(15, 23, 42); // slate-900
-  doc.rect(0, 0, pageWidth, 44, "F");
+  doc.rect(0, 0, pageWidth, 42, "F");
 
-  // Accent Line
+  // Accent Red Line
   doc.setFillColor(239, 68, 68); // Red-500
-  doc.rect(0, 43, pageWidth, 2.5, "F");
+  doc.rect(0, 41, pageWidth, 2, "F");
 
   // Title
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(17);
-  doc.text("AFFECTED TREES INSPECTION REPORT", margin, 17);
+  doc.setFontSize(15);
+  doc.text("AFFECTED TREES INSPECTION REPORT", margin, 15);
 
   // Subtitle
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
   doc.text(
     `Review Title: ${review.title}  |  Inspection Date: ${review.review_date}`,
     margin,
-    25
+    22.5
   );
 
   doc.text(
-    `Farm Location: ${review.farm_location || "All Farms"}  |  Generated: ${new Date().toLocaleDateString("en-IN")}`,
+    `Farm Location: ${review.farm_location || "All Farms"}  |  Report Generated: ${new Date().toLocaleDateString("en-IN")}`,
     margin,
-    31
+    29
   );
 
-  // Clickable link to live application
+  // Clickable link pill in top header
   const dashboardUrl = "https://project-avacado-blush.vercel.app/";
+  const topBtnW = 44;
+  const topBtnH = 8;
+  const topBtnX = pageWidth - margin - topBtnW;
+  const topBtnY = 22;
+
+  doc.setFillColor(30, 41, 59); // slate-800
+  doc.setDrawColor(59, 130, 246); // blue-500
+  doc.roundedRect(topBtnX, topBtnY, topBtnW, topBtnH, 2, 2, "FD");
+
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(96, 165, 250); // Sky blue
-  doc.textWithLink(`Live Dashboard: ${dashboardUrl}`, margin, 38, {
-    url: dashboardUrl,
-  });
+  doc.setFontSize(7.5);
+  doc.setTextColor(147, 197, 253); // sky-300
+  doc.text("Live Dashboard ↗", topBtnX + topBtnW / 2, topBtnY + 5.2, { align: "center" });
+  doc.link(topBtnX, topBtnY, topBtnW, topBtnH, { url: dashboardUrl });
 
   // ─── Summary Metrics Box ──────────────────────────────────────────────────
-  let y = 52;
+  let y = 49;
 
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(margin, y, contentWidth, 22, 3, 3, "FD");
+  doc.roundedRect(margin, y, contentWidth, 20, 2.5, 2.5, "FD");
 
   const statCols = [
     { label: "TOTAL INSPECTED", val: `${review.total_trees}` },
@@ -368,20 +395,20 @@ export async function downloadAffectedTreesPdf(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(col.label, cx, y + 7, { align: "center" });
+    doc.text(col.label, cx, y + 6.5, { align: "center" });
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
+    doc.setFontSize(11.5);
     doc.setTextColor(col.isAlert ? 220 : 30, col.isAlert ? 38 : 41, col.isAlert ? 38 : 59);
-    doc.text(col.val, cx, y + 16, { align: "center" });
+    doc.text(col.val, cx, y + 14.5, { align: "center" });
 
     if (idx < statCols.length - 1) {
       doc.setDrawColor(226, 232, 240);
-      doc.line(margin + (idx + 1) * colW, y + 4, margin + (idx + 1) * colW, y + 18);
+      doc.line(margin + (idx + 1) * colW, y + 3.5, margin + (idx + 1) * colW, y + 16.5);
     }
   });
 
-  y += 28;
+  y += 26;
 
   // ─── If No Affected Trees ────────────────────────────────────────────────
   if (affectedTrees.length === 0) {
@@ -407,7 +434,7 @@ export async function downloadAffectedTreesPdf(
     return;
   }
 
-  // ─── Affected Trees Detailed Cards ──────────────────────────────────────
+  // ─── Affected Trees Detailed Cards (Portrait Photos) ─────────────────────
   for (let i = 0; i < affectedTrees.length; i++) {
     const tree = affectedTrees[i];
     onProgress?.(`Processing affected tree ${i + 1} of ${affectedTrees.length} (${tree.tree_id})…`);
@@ -448,10 +475,58 @@ export async function downloadAffectedTreesPdf(
       allDbPhotos.push(tree.original_photo_url);
     }
 
-    // Determine layout and height
-    const hasDbPhotos = allDbPhotos.length > 0;
-    // Base card height: Header (14) + Top images (56) + DB photos row (44 if present) + Notes (26) + padding
-    const cardH = hasDbPhotos ? 146 : 106;
+    // ─── Load All Image Assets in Parallel ─────────────────────────────────
+    const [mapDataUrl, affImgInfo] = await Promise.all([
+      generateZoomedMapSnapshot(tree.latitude, tree.longitude),
+      tree.affected_photo_url ? loadImageInfo(tree.affected_photo_url) : Promise.resolve(null),
+    ]);
+
+    // Build the list of evidence photos
+    const photoItems: EvidencePhoto[] = [];
+
+    // 1. Zoomed Satellite Map (Portrait 3:4)
+    photoItems.push({
+      title: "1. LOCATION MAP (Z19)",
+      isMap: true,
+      dataUrl: mapDataUrl,
+      fallbackLabel: `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`,
+    });
+
+    // 2. Affected Point Defect Photo (Portrait 3:4)
+    photoItems.push({
+      title: "2. DEFECT CLOSE-UP",
+      isDefect: true,
+      imgInfo: affImgInfo,
+      fallbackLabel: "No close-up defect\nphoto attached",
+    });
+
+    // 3. Registered Database Photos (Portrait 3:4)
+    for (let pIdx = 0; pIdx < allDbPhotos.length; pIdx++) {
+      const pInfo = await loadImageInfo(allDbPhotos[pIdx]);
+      photoItems.push({
+        title: `${photoItems.length + 1}. TREE PHOTO #${pIdx + 1}`,
+        imgInfo: pInfo,
+        fallbackLabel: `Photo #${pIdx + 1}`,
+      });
+    }
+
+    // ─── Dynamic Column Grid Sizing in Portrait Mode ───────────────────────
+    // If <= 3 items: 3 large portrait columns (56mm x 72mm)
+    // If >= 4 items: 4 portrait columns (41.5mm x 55mm)
+    const numCols = photoItems.length <= 3 ? 3 : 4;
+    const colSpacing = 3;
+    const availablePhotoW = contentWidth - 6; // 3mm padding each side
+    const photoBoxW = (availablePhotoW - (numCols - 1) * colSpacing) / numCols;
+    // 3:4 portrait ratio (height = width / 0.75)
+    const photoBoxH = numCols === 3 ? 72 : 55;
+
+    const numRows = Math.ceil(photoItems.length / numCols);
+    const photoRowStride = 4.5 + photoBoxH + 4; // title (4.5) + box + gap (4)
+    const totalPhotosH = numRows * photoRowStride;
+
+    const headerH = 16;
+    const notesBoxH = 20;
+    const cardH = headerH + 3 + totalPhotosH + 2 + notesBoxH + 4;
 
     // Check if new page is needed
     if (y + cardH > pageHeight - margin) {
@@ -467,139 +542,107 @@ export async function downloadAffectedTreesPdf(
     doc.setDrawColor(203, 213, 225);
     doc.roundedRect(margin, cardY, contentWidth, cardH, 3, 3, "FD");
 
-    // ─── Card Header Bar ──────────────────────────────────────────────────
+    // ─── Card Header Bar (Height: 16mm) ───────────────────────────────────
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(margin, cardY, contentWidth, 14, 3, 3, "F");
+    doc.roundedRect(margin, cardY, contentWidth, headerH, 3, 3, "F");
     doc.setDrawColor(226, 232, 240);
-    doc.line(margin, cardY + 14, margin + contentWidth, cardY + 14);
+    doc.line(margin, cardY + headerH, margin + contentWidth, cardY + headerH);
 
-    // Red left accent pip
+    // Red left accent indicator strip
     doc.setFillColor(220, 38, 38);
-    doc.roundedRect(margin, cardY, 3.5, 14, 2, 2, "F");
+    doc.roundedRect(margin, cardY, 3.5, headerH, 2, 2, "F");
 
-    // Tree ID & Metadata
+    // Line 1: Tree ID & Alert Badge
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text(`Tree ID: ${tree.tree_id}`, margin + 7, cardY + 9.5);
+    doc.text(`Tree ID: ${tree.tree_id}`, margin + 7, cardY + 6.5);
 
-    // Badges: Type & Farm
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(220, 38, 38);
-    doc.text("[DEFECT REPORTED]", margin + 46, cardY + 9.5);
+    doc.text("[DEFECT REPORTED]", margin + 45, cardY + 6.5);
 
+    // Line 2: Metadata row (Variety, Type, Farm Location, GPS)
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
-    const metaStr = `Type: ${tree.type.toUpperCase()}  |  ${tree.farm_location || "Attuvampatti"}  |  ${tree.latitude.toFixed(6)}, ${tree.longitude.toFixed(6)}`;
-    doc.text(metaStr, margin + 86, cardY + 9.5);
+    const metaParts = [
+      tree.variety ? `Variety: ${tree.variety}` : "",
+      `Type: ${tree.type.toUpperCase()}`,
+      tree.farm_location || "Attuvampatti",
+      `GPS: ${tree.latitude.toFixed(6)}, ${tree.longitude.toFixed(6)}`,
+    ].filter(Boolean);
+    doc.text(metaParts.join("  •  "), margin + 7, cardY + 12);
 
-    // ─── Clickable Button Pill: View on Dashboard ──────────────────────────
-    const btnW = 38;
-    const btnH = 8;
-    const btnX = margin + contentWidth - btnW - 3;
-    const btnY = cardY + 3;
+    // ─── Clickable Button Pill: View on Dashboard (Properly Aligned) ───────
+    const btnW = 40;
+    const btnH = 8.5;
+    const btnX = margin + contentWidth - btnW - 3.5;
+    const btnY = cardY + (headerH - btnH) / 2; // Exact vertical center: cardY + 3.75mm
 
+    // Button frame with Royal Blue fill & Deep Blue border
     doc.setFillColor(37, 99, 235); // Royal Blue
-    doc.roundedRect(btnX, btnY, btnW, btnH, 2, 2, "F");
+    doc.setDrawColor(29, 78, 216); // Deep Blue border
+    doc.roundedRect(btnX, btnY, btnW, btnH, 2.5, 2.5, "FD");
 
+    // Centered button text
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(255, 255, 255);
-    doc.text("↗ View on Dashboard", btnX + btnW / 2, btnY + 5.2, { align: "center" });
+    doc.text("View on Dashboard ↗", btnX + btnW / 2, btnY + 5.7, { align: "center" });
 
-    // Active clickable hyperlink over button
+    // Active clickable hyperlink over button area
     doc.link(btnX, btnY, btnW, btnH, { url: treeLinkUrl });
 
-    // ─── Row 1: High Precision Satellite Map & Close-Up Defect Photo ───────
-    const row1W = (contentWidth - 9) / 2; // ~86.5mm each
-    const row1H = 46;
-    const row1Y = cardY + 18;
+    // ─── Portrait Photo Grid Rendering ─────────────────────────────────────
+    const photosStartY = cardY + headerH + 3;
 
-    // 1. Zoomed Satellite Map (Zoom 19)
-    const mapColX = margin + 3;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text("1. PRECISE LOCATION (ZOOM 19 SATELLITE)", mapColX, row1Y + 3.5);
+    for (let idx = 0; idx < photoItems.length; idx++) {
+      const item = photoItems[idx];
+      const rIdx = Math.floor(idx / numCols);
+      const cIdx = idx % numCols;
 
-    const mapDataUrl = await generateZoomedMapSnapshot(tree.latitude, tree.longitude);
-    if (mapDataUrl) {
-      try {
-        doc.addImage(mapDataUrl, "JPEG", mapColX, row1Y + 5.5, row1W, row1H);
-      } catch {
-        drawFallbackBox(doc, mapColX, row1Y + 5.5, row1W, row1H, "Map Tile");
-      }
-    } else {
-      drawFallbackBox(
-        doc,
-        mapColX,
-        row1Y + 5.5,
-        row1W,
-        row1H,
-        `Coordinates:\n${tree.latitude.toFixed(6)}\n${tree.longitude.toFixed(6)}`
-      );
-    }
+      const boxX = margin + 3 + cIdx * (photoBoxW + colSpacing);
+      const boxY = photosStartY + rIdx * photoRowStride + 4.5;
 
-    // 2. Affected Point Defect Photo (with aspect-ratio preservation)
-    const affColX = mapColX + row1W + 3;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(220, 38, 38);
-    doc.text("2. CLOSE-UP DEFECT PHOTO (AFFECTED POINT)", affColX, row1Y + 3.5);
-
-    const affImgInfo = tree.affected_photo_url ? await loadImageInfo(tree.affected_photo_url) : null;
-    if (affImgInfo) {
-      drawFittedImage(doc, affImgInfo, affColX, row1Y + 5.5, row1W, row1H);
-    } else {
-      drawFallbackBox(doc, affColX, row1Y + 5.5, row1W, row1H, "No close-up defect\nphotograph attached");
-    }
-
-    // ─── Row 2: All Registered Tree Photos (from Database) ──────────────────
-    let nextY = row1Y + row1H + 9;
-
-    if (hasDbPhotos) {
-      const displayPhotos = allDbPhotos.slice(0, 4);
-      const dbColW = (contentWidth - 6 - (displayPhotos.length - 1) * 3) / displayPhotos.length;
-      const dbColH = 32;
-
+      // Title label above portrait photo
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(
-        `3. REGISTERED TREE IMAGES IN DATABASE (${allDbPhotos.length} photo${allDbPhotos.length > 1 ? "s" : ""})`,
-        margin + 3,
-        nextY + 3.5
-      );
+      doc.setFontSize(6.8);
+      doc.setTextColor(item.isDefect ? 220 : 15, item.isDefect ? 38 : 23, item.isDefect ? 38 : 42);
+      doc.text(item.title, boxX, boxY - 1.5);
 
-      for (let pIdx = 0; pIdx < displayPhotos.length; pIdx++) {
-        const pX = margin + 3 + pIdx * (dbColW + 3);
-        const pInfo = await loadImageInfo(displayPhotos[pIdx]);
-        if (pInfo) {
-          drawFittedImage(doc, pInfo, pX, nextY + 5.5, dbColW, dbColH);
-        } else {
-          drawFallbackBox(doc, pX, nextY + 5.5, dbColW, dbColH, `Photo #${pIdx + 1}`);
+      // Render Portrait Photo / Map Box
+      if (item.isMap && item.dataUrl) {
+        try {
+          doc.addImage(item.dataUrl, "JPEG", boxX, boxY, photoBoxW, photoBoxH);
+          doc.setDrawColor(203, 213, 225);
+          doc.roundedRect(boxX, boxY, photoBoxW, photoBoxH, 2, 2, "D");
+        } catch {
+          drawFallbackBox(doc, boxX, boxY, photoBoxW, photoBoxH, item.fallbackLabel);
         }
+      } else if (item.imgInfo) {
+        drawFittedImage(doc, item.imgInfo, boxX, boxY, photoBoxW, photoBoxH);
+      } else {
+        drawFallbackBox(doc, boxX, boxY, photoBoxW, photoBoxH, item.fallbackLabel);
       }
-
-      nextY += dbColH + 9;
     }
 
     // ─── Inspection Observations & Remarks Box ────────────────────────────
-    const notesBoxH = 21;
+    const notesY = photosStartY + totalPhotosH + 2;
+
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(margin + 3, nextY, contentWidth - 6, notesBoxH, 2, 2, "FD");
+    doc.roundedRect(margin + 3, notesY, contentWidth - 6, notesBoxH, 2, 2, "FD");
 
-    // Blue indicator on notes box
+    // Blue indicator stripe
     doc.setFillColor(37, 99, 235);
-    doc.roundedRect(margin + 3, nextY, 2.5, notesBoxH, 1, 1, "F");
+    doc.roundedRect(margin + 3, notesY, 2.5, notesBoxH, 1, 1, "F");
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
-    doc.text("INSPECTION OBSERVATIONS & DEFECT DIAGNOSIS:", margin + 8, nextY + 5.5);
+    doc.text("INSPECTION OBSERVATIONS & DEFECT DIAGNOSIS:", margin + 8, notesY + 5.5);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
@@ -608,13 +651,13 @@ export async function downloadAffectedTreesPdf(
       tree.affected_notes?.trim() ||
       "Tree flagged as affected during this inspection cycle. Immediate field verification and remediation recommended.";
     const splitNotes = doc.splitTextToSize(notesText, contentWidth - 18);
-    doc.text(splitNotes, margin + 8, nextY + 11.5);
+    doc.text(splitNotes, margin + 8, notesY + 10.5);
 
-    // Direct Link line
+    // Direct Link line at bottom
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
-    doc.setTextColor(100, 116, 139);
-    doc.textWithLink(`Tree Details: ${treeLinkUrl}`, margin + 8, nextY + 18, {
+    doc.setTextColor(37, 99, 235);
+    doc.textWithLink(`↗ View on Live Dashboard: ${treeLinkUrl}`, margin + 8, notesY + 16.5, {
       url: treeLinkUrl,
     });
 
