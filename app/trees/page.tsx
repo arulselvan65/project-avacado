@@ -765,7 +765,6 @@ export default function TreesListPage() {
                         </div>
                       </div>
                     )}
-                    </div>
                   </div>
                 );
               })}
